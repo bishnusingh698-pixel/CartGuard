@@ -1,0 +1,47 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "CartGuard Validator"
+handle = "cartguard-validator"
+type = "function"
+
+  [[extensions.targeting]]
+  target = "purchase.validation.run"
+  input_query = "src/run.graphql"
+  export = "run"
+
+  [extensions.build]
+  # Empty command → the Shopify CLI runs its OWN official JS/TS function
+  # pipeline: typegen (below) → esbuild bundle of src/index.ts → Javy WASM →
+  # written to `path`. Do NOT set command = "npm run build" here while the
+  # extension package.json build script invokes `shopify app function build`
+  # — the CLI executes this command as part of its build, so the two would
+  # recurse forever (verified empirically; a custom command REPLACES the
+  # CLI's WASM compilation).
+  command = ""
+  # Official escape hatch for the typegen step: the CLI's fallback expects a
+  # `codegen` section in package.json whose relative paths resolve against a
+  # TEMP directory (broken by design); a committed codegen.json + this command
+  # gives deterministic, offline type generation from input-schema.graphql.
+  typegen_command = "npm run codegen"
+  path = "dist/index.wasm"
+
+  [[extensions.metafields]]
+  namespace = "cartguard"
+  key = "regex_rules"
+
+  [[extensions.metafields]]
+  namespace = "cartguard"
+  key = "quantity_limits"
+
+  [[extensions.metafields]]
+  namespace = "cartguard"
+  key = "geo_blocklist"
+
+  [[extensions.metafields]]
+  namespace = "cartguard"
+  key = "vip_allowlist"
+
+  [[extensions.metafields]]
+  namespace = "cartguard"
+  key = "settings"

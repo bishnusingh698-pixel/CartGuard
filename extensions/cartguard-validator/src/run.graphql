@@ -1,0 +1,48 @@
+query RunInput {
+  buyerJourney {
+    step
+  }
+  cart {
+    buyerIdentity {
+      email
+    }
+    lines {
+      quantity
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          product {
+            id
+            tags
+          }
+        }
+      }
+    }
+    deliveryGroups {
+      deliveryAddress {
+        address1
+        address2
+        city
+        provinceCode
+        zip
+        countryCode
+      }
+    }
+    billingAddress {
+      address1
+      address2
+      city
+      provinceCode
+      zip
+      countryCode
+    }
+  }
+  shop {
+    regex_rules: metafield(namespace: "cartguard", key: "regex_rules") { value }
+    quantity_limits: metafield(namespace: "cartguard", key: "quantity_limits") { value }
+    geo_blocklist: metafield(namespace: "cartguard", key: "geo_blocklist") { value }
+    vip_allowlist: metafield(namespace: "cartguard", key: "vip_allowlist") { value }
+    settings: metafield(namespace: "cartguard", key: "settings") { value }
+  }
+}

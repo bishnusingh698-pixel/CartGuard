@@ -1,0 +1,6 @@
+{
+  "name": "CartGuard",
+  "description": "Fraud prevention and cart validation rules enforced at checkout with a Remix and Polaris admin dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "cartguard-validator",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "shopify app function build",
+    "codegen": "graphql-codegen --config codegen.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@shopify/shopify_function": "^2.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

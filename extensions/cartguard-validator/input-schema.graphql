@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CartGuard Validator — Function input contract (API 2026-07)
+#
+# This SDL is the source of truth for `graphql-codegen` (see codegen.json).
+# It mirrors the purchase.validation Function input schema exactly as queried
+# by src/run.graphql, plus a defensive `billingAddress` placeholder that stays
+# null unless a future API surface exposes it (Smart Mismatch Detector).
+# The Function output contract (FunctionResult) is committed by hand in
+# src/function-result.ts because it is not part of the input schema.
+# ─────────────────────────────────────────────────────────────────────────────
+
+schema {
+  query: Query
+}
+
+type Query {
+  buyerJourney: BuyerJourney!
+  cart: Cart!
+  shop: Shop!
+}
+
+type BuyerJourney {
+  step: BuyerJourneyStep!
+}
+
+enum BuyerJourneyStep {
+  CART
+  CHECKOUT
+  CHECKOUT_COMPLETION
+  POST_CHECKOUT
+}
+
+type Cart {
+  buyerIdentity: CartBuyerIdentity
+  lines: [CartLine!]!
+  deliveryGroups: [CartDeliveryGroup!]!
+  billingAddress: DeliveryAddress
+}
+
+type CartBuyerIdentity {
+  email: String
+}
+
+type CartLine {
+  quantity: Int!
+  merchandise: Merchandise!
+}
+
+union Merchandise = ProductVariant | CustomMerchandise
+
+type ProductVariant {
+  id: ID
+  product: Product
+}
+
+type Product {
+  id: ID
+  tags: [String!]!
+}
+
+type CustomMerchandise {
+  id: ID
+}
+
+type CartDeliveryGroup {
+  deliveryAddress: DeliveryAddress
+}
+
+type DeliveryAddress {
+  address1: String
+  address2: String
+  city: String
+  provinceCode: String
+  zip: String
+  countryCode: String
+}
+
+type Shop {
+  # Aliased calls in src/run.graphql, e.g.
+  #   regex_rules: metafield(namespace: "cartguard", key: "regex_rules")
+  metafield(namespace: String!, key: String!): Metafield
+}
+
+type Metafield {
+  value: String
+}
