@@ -24,7 +24,7 @@ const shopify = shopifyApp({
   // literal is asserted; the runtime accepts the version string as-is.
   apiVersion: "2026-07" as ApiVersion,
   scopes: process.env.SCOPES ? process.env.SCOPES.split(",") : ["read_products", "read_orders", "write_metafields"],
-  appUrl: process.env.SHOPIFY_APP_URL || "http://localhost:3000",
+  appUrl: process.env.SHOPIFY_APP_URL || "https://cartguard.netlify.app",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,

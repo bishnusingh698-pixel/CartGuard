@@ -1,11 +1,11 @@
 client_id = "a94fb70b5b04fc8e18e80b1663eae59a"
 name = "CartGuard"
-application_url = "https://your-production-url.com"
+application_url = "https://cartguard.netlify.app"
 embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-dev_store_url = "your-test-store.myshopify.com"
+dev_store_url = "test-shop-qay2qcgj.myshopify.com"
 include_config_on_deploy = true
 
 [access_scopes]
@@ -13,9 +13,9 @@ scopes = "read_products,read_orders,write_metafields"
 
 [auth]
 redirect_urls = [
-  "https://your-production-url.com/auth/callback",
-  "https://your-production-url.com/auth/shopify/callback",
-  "https://your-production-url.com/api/auth/callback"
+  "https://cartguard.netlify.app/auth/callback",
+  "https://cartguard.netlify.app/auth/shopify/callback",
+  "https://cartguard.netlify.app/api/auth/callback"
 ]
 
 [webhooks]
