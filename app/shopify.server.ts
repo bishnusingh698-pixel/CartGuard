@@ -17,7 +17,7 @@ import prisma from "./db.server";
  * handler is app/routes/webhooks.tsx.
  */
 const shopify = shopifyApp({
-  apiKey: process.env.SHOPIFY_API_KEY || "cartguard-preview-key",
+  apiKey: process.env.SHOPIFY_API_KEY || "a94fb70b5b04fc8e18e80b1663eae59a",
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "cartguard-preview-secret",
   // Constraint #1: pin the 2026-07 (Summer 2026) API version. The installed
   // copy of shopify-app-remix type-declares an older ApiVersion union, so the
@@ -272,21 +272,26 @@ const mockAdminApi = {
 const customAuthenticate = {
   ...shopify.authenticate,
   admin: async (request: Request) => {
-    if (process.env.SHOPIFY_API_KEY && process.env.SHOPIFY_API_SECRET) {
-      try {
-        return await shopify.authenticate.admin(request);
-      } catch {
-        // Fall back to mock if running outside embedded Shopify iframe
+    try {
+      return await shopify.authenticate.admin(request);
+    } catch (error) {
+      // If shopify authentication throws a Response (e.g., OAuth redirect or 401), we MUST throw it so Remix executes the redirect!
+      if (error instanceof Response) {
+        throw error;
       }
+      // If we are in local preview mode without credentials, fall back to mock
+      if (!process.env.SHOPIFY_API_KEY && !process.env.SHOPIFY_API_SECRET) {
+        return {
+          admin: mockAdminApi,
+          session: {
+            shop: "cartguard-preview.myshopify.com",
+            accessToken: "mock-token",
+            isOnline: false,
+          },
+        } as unknown as Awaited<ReturnType<typeof shopify.authenticate.admin>>;
+      }
+      throw error;
     }
-    return {
-      admin: mockAdminApi,
-      session: {
-        shop: "cartguard-preview.myshopify.com",
-        accessToken: "mock-token",
-        isOnline: false,
-      },
-    } as unknown as Awaited<ReturnType<typeof shopify.authenticate.admin>>;
   },
 };
 

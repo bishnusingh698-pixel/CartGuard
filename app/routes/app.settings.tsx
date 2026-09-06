@@ -12,10 +12,15 @@
  *    before the metafield write is finalized.
  */
 
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
+import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { useFetcher, useLoaderData } from "@remix-run/react";
+import { boundary } from "@shopify/shopify-app-remix/server";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+export const headers: HeadersFunction = (headersArgs) => {
+  return boundary.headers(headersArgs);
+};
 import {
   Banner,
   BlockStack,

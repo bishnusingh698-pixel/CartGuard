@@ -1,4 +1,4 @@
-client_id = "YOUR_CLIENT_ID"
+client_id = "a94fb70b5b04fc8e18e80b1663eae59a"
 name = "CartGuard"
 application_url = "https://your-production-url.com"
 embedded = true

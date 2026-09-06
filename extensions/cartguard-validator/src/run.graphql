@@ -14,7 +14,6 @@ query RunInput {
           id
           product {
             id
-            tags
           }
         }
       }
@@ -26,16 +25,12 @@ query RunInput {
         city
         provinceCode
         zip
-        countryCode
       }
     }
     billingAddress {
       address1
-      address2
       city
-      provinceCode
       zip
-      countryCode
     }
   }
   shop {

@@ -1,0 +1,11 @@
+node_modules
+.env
+build
+dist
+dev.sqlite
+dev.sqlite-journal
+prisma/*.sqlite*
+*.sqlite*
+.DS_Store
+extensions/cartguard-validator/dist
+extensions/cartguard-validator/generated
