@@ -55,7 +55,6 @@ type ProductVariant {
 
 type Product {
   id: ID
-  tags: [String!]!
 }
 
 type CustomMerchandise {

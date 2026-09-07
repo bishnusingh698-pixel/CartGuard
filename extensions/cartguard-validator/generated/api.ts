@@ -25,7 +25,6 @@ export type RunInputQuery = {
             id?: string | null;
             product?: {
               id?: string | null;
-              tags: Array<string>;
             } | null;
           }
         | {

@@ -110,7 +110,7 @@ type CartLine = NonNullable<Cart["lines"]>[number];
 
 type VariantLike = {
   id?: string | null;
-  product?: { id?: string | null; tags?: string[] | null } | null;
+  product?: { id?: string | null } | null;
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -213,8 +213,7 @@ function evaluateQuantityLimits(
   const lines: CartLine[] = Array.isArray(input.cart?.lines) ? input.cart.lines : [];
 
   // Aggregate quantities per product (a product may appear on several lines)
-  // and collect its tag set. quantity_limits is `{ tag: max }`.
-  const perProduct = new Map<string, { quantity: number; tags: Set<string> }>();
+  const perProduct = new Map<string, number>();
 
   for (const line of lines) {
     if (!line || line.merchandise?.__typename !== "ProductVariant") continue;
@@ -222,28 +221,27 @@ function evaluateQuantityLimits(
     const productId = String(variant?.product?.id ?? "");
     if (!productId) continue;
 
-    const aggregate = perProduct.get(productId) ?? { quantity: 0, tags: new Set<string>() };
-    aggregate.quantity += Number(line.quantity ?? 0);
-    for (const tag of variant?.product?.tags ?? []) {
-      if (typeof tag === "string" && tag.length > 0) aggregate.tags.add(tag);
-    }
-    perProduct.set(productId, aggregate);
+    const current = perProduct.get(productId) ?? 0;
+    perProduct.set(productId, current + Number(line.quantity ?? 0));
   }
 
-  for (const [, aggregate] of perProduct) {
-    for (const [tag, rawLimit] of Object.entries(limits)) {
-      if (!tag || !aggregate.tags.has(tag)) continue;
+  for (const [productId, quantity] of perProduct) {
+    for (const [key, rawLimit] of Object.entries(limits)) {
+      if (!key) continue;
+      // Matches specific product ID or global limit key
+      const matches = key === "all" || key === "*" || productId.includes(key);
+      if (!matches) continue;
 
       const max = typeof rawLimit === "number" ? rawLimit : Number(rawLimit?.max);
       if (!Number.isFinite(max) || max <= 0) continue; // invalid limit → skip (fail-open)
 
-      if (aggregate.quantity > max) {
+      if (quantity > max) {
         const customMessage =
           typeof rawLimit === "object" && rawLimit ? asTrimmedString(rawLimit.message) : "";
         errors.push({
           localizedMessage:
             customMessage ||
-            `Quantity limit: a maximum of ${max} unit(s) per order applies to products tagged "${tag}".`,
+            `Quantity limit: a maximum of ${max} unit(s) per order applies to this product.`,
           target: "$.cart.lines",
         });
       }
