@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: cartguard
+    env: node
+    plan: free
+    region: ohio
+    buildCommand: npm install && npx prisma db push && npm run build
+    startCommand: npx prisma db push && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000

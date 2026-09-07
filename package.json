@@ -8,7 +8,7 @@
     "dev": "remix vite:dev --host 0.0.0.0 --port 3000",
     "lint": "eslint --ignore-path .gitignore --ext .js,.jsx,.ts,.tsx .",
     "postinstall": "prisma generate && prisma db push && rm -rf node_modules/@shopify/polaris/node_modules/@types",
-    "start": "NODE_ENV=production remix-serve ./build/server/index.js",
+    "start": "npx prisma db push && NODE_ENV=production remix-serve ./build/server/index.js",
     "typecheck": "tsc",
     "shopify": "shopify",
     "deploy": "shopify app deploy",
