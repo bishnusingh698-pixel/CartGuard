@@ -1,6 +1,6 @@
 client_id = "a94fb70b5b04fc8e18e80b1663eae59a"
 name = "CartGuard"
-application_url = "http://localhost:3000"
+application_url = "https://cartguard-co1f.onrender.com"
 embedded = true
 
 [build]
@@ -13,9 +13,9 @@ scopes = "read_products,read_orders,write_metafields"
 
 [auth]
 redirect_urls = [
-  "http://localhost:3000/auth/callback",
-  "http://localhost:3000/auth/shopify/callback",
-  "http://localhost:3000/api/auth/callback"
+  "https://cartguard-co1f.onrender.com/auth/callback",
+  "https://cartguard-co1f.onrender.com/auth/shopify/callback",
+  "https://cartguard-co1f.onrender.com/api/auth/callback"
 ]
 
 [webhooks]
