@@ -17,21 +17,20 @@ import { json } from "@remix-run/node";
 import { useFetcher, useLoaderData } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-export const headers: HeadersFunction = (headersArgs) => {
-  return boundary.headers(headersArgs);
-};
 import {
+  Badge,
   Banner,
   BlockStack,
   Button,
   Card,
   Checkbox,
+  InlineGrid,
   InlineStack,
   Layout,
   List,
   Page,
   PageActions,
+  Tag,
   Text,
   TextField,
 } from "@shopify/polaris";
@@ -53,17 +52,13 @@ import {
   writeConfiguration,
 } from "../lib/cartguard.server";
 
+export const headers: HeadersFunction = (headersArgs) => {
+  return boundary.headers(headersArgs);
+};
+
 /* ────────────────────────────────────────────────────────────────────────────
  * Loader — read current configuration from Shop metafields
  * ──────────────────────────────────────────────────────────────────────────── */
-
-const EXAMPLES = {
-  vip_allowlist: '["vip@yourstore.com", "wholesale@partner.io"]',
-  regex_rules:
-    '[\n  {\n    "pattern": "p\\\\.?o\\\\.? box|post office box",\n    "message": "We are unable to deliver to PO Boxes. Please provide a street address."\n  },\n  {\n    "pattern": "freight forwarder|forwarding (company|agent)|reship",\n    "message": "We are unable to deliver to freight forwarders."\n  }\n]',
-  quantity_limits: '{\n  "bulk": 10,\n  "reseller": 25\n}',
-  geo_blocklist: '{\n  "zips": [],\n  "cities": [],\n  "states": []\n}',
-};
 
 type LoaderData = {
   settings: CartGuardSettings;
@@ -130,14 +125,12 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   try {
-    // Strict validation first — a save should never write malformed JSON
-    // even though the checkout Function itself stays fail-open.
     const fieldErrors = validateDraftConfig(draft);
     if (Object.keys(fieldErrors).length > 0) {
       return json<ActionResponse>({
         ok: false,
         fieldErrors,
-        message: "Fix the highlighted JSON before saving.",
+        message: "Please check your rules configuration before saving.",
       });
     }
 
@@ -148,7 +141,6 @@ export async function action({ request }: ActionFunctionArgs) {
       return json<ActionResponse>({ ok: true, impact, needsConfirm: false, saved: false });
     }
 
-    // Feature 6: simulate BEFORE finalizing the save.
     const impact = await simulateImpact(admin, rules, settings);
     if (!confirmed && impact.blocked > 0) {
       return json<ActionResponse>({ ok: true, needsConfirm: true, impact, saved: false });
@@ -165,25 +157,62 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Client-side JSON validation
+ * Client-side Helpers
  * ──────────────────────────────────────────────────────────────────────────── */
 
 type JsonKind = "array" | "object";
 
 function jsonValidationError(value: string, kind: JsonKind): string | null {
   const trimmed = value.trim();
-  if (!trimmed) return null; // empty → metafield saved as the empty default
+  if (!trimmed) return null;
   try {
     const parsed = JSON.parse(trimmed);
     if (kind === "array" && !Array.isArray(parsed)) {
-      return "Expected a JSON array, e.g. [ ... ].";
+      return "Expected an array list.";
     }
     if (kind === "object" && (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))) {
-      return "Expected a JSON object, e.g. { ... }.";
+      return "Expected a key-value object.";
     }
     return null;
   } catch (error) {
-    return `Invalid JSON: ${(error as Error).message}`;
+    return `Formatting issue: ${(error as Error).message}`;
+  }
+}
+
+function safeParseArray(raw: string): string[] {
+  try {
+    const val = JSON.parse(raw);
+    return Array.isArray(val) ? val.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function safeParseGeo(raw: string): { zips: string[]; cities: string[]; states: string[] } {
+  try {
+    const val = JSON.parse(raw);
+    return {
+      zips: Array.isArray(val?.zips) ? val.zips.map(String) : [],
+      cities: Array.isArray(val?.cities) ? val.cities.map(String) : [],
+      states: Array.isArray(val?.states) ? val.states.map(String) : [],
+    };
+  } catch {
+    return { zips: [], cities: [], states: [] };
+  }
+}
+
+function safeParseQty(raw: string): Array<{ tag: string; max: number }> {
+  try {
+    const val = JSON.parse(raw);
+    if (typeof val === "object" && val !== null && !Array.isArray(val)) {
+      return Object.entries(val).map(([tag, limit]) => ({
+        tag,
+        max: typeof limit === "number" ? limit : typeof limit === "object" && limit !== null && "max" in limit ? Number((limit as { max: number }).max) : 1,
+      }));
+    }
+    return [];
+  } catch {
+    return [];
   }
 }
 
@@ -201,11 +230,108 @@ export default function CartGuardSettingsPage() {
   const [qtyJson, setQtyJson] = useState(initialFields.quantity_limits);
   const [geoJson, setGeoJson] = useState(initialFields.geo_blocklist);
 
+  // Friendly Visual UI State
+  const [useDeveloperMode, setUseDeveloperMode] = useState(false);
+
+  // VIP
+  const initialVip = useMemo(() => safeParseArray(initialFields.vip_allowlist), [initialFields.vip_allowlist]);
+  const [vipInput, setVipInput] = useState(initialVip.join("\n"));
+
+  // PO Box & Freight
+  const [blockPoBox, setBlockPoBox] = useState(true);
+  const [blockFreight, setBlockFreight] = useState(true);
+  const [blockApoFpo, setBlockApoFpo] = useState(true);
+  const [customKeywords, setCustomKeywords] = useState("");
+
+  // Geo Blocklist
+  const initialGeo = useMemo(() => safeParseGeo(initialFields.geo_blocklist), [initialFields.geo_blocklist]);
+  const [geoZips, setGeoZips] = useState(initialGeo.zips.join(", "));
+  const [geoCities, setGeoCities] = useState(initialGeo.cities.join(", "));
+  const [geoStates, setGeoStates] = useState(initialGeo.states.join(", "));
+
+  // Quantity Limits
+  const initialQtyList = useMemo(() => safeParseQty(initialFields.quantity_limits), [initialFields.quantity_limits]);
+  const [qtyRows, setQtyRows] = useState<Array<{ tag: string; max: number }>>(
+    initialQtyList.length > 0 ? initialQtyList : [{ tag: "bulk", max: 10 }]
+  );
+
   const [impact, setImpact] = useState<ImpactResult | null>(null);
   const [needsConfirm, setNeedsConfirm] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // ── Client-side JSON validation ────────────────────────────────────────────
+  // Sync friendly VIP inputs to JSON
+  const handleVipChange = (val: string) => {
+    setVipInput(val);
+    const parsed = val
+      .split(/[\n,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    setVipJson(JSON.stringify(parsed, null, 2));
+  };
+
+  // Sync friendly Geo inputs to JSON
+  const syncGeoToJson = (zipsStr: string, citiesStr: string, statesStr: string) => {
+    const parseItems = (str: string) =>
+      str
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+    const geoObj = {
+      zips: parseItems(zipsStr),
+      cities: parseItems(citiesStr),
+      states: parseItems(statesStr),
+    };
+    setGeoJson(JSON.stringify(geoObj, null, 2));
+  };
+
+  // Sync friendly PO Box / Freight toggles to JSON
+  const syncRegexToJson = (po: boolean, freight: boolean, apo: boolean, custom: string) => {
+    const rules: Array<{ pattern: string; message: string }> = [];
+    if (po) {
+      rules.push({
+        pattern: "p\\.?o\\.? box|post office box|postal box|apartado postal",
+        message: "We cannot ship to PO Boxes. Please provide a valid physical street address.",
+      });
+    }
+    if (freight) {
+      rules.push({
+        pattern: "freight forwarder|forwarding (company|agent)|reship|reshipper|transshipment|suite \\d{3,}",
+        message: "We do not ship to freight forwarders or reshippers.",
+      });
+    }
+    if (apo) {
+      rules.push({
+        pattern: "\\b(apo|fpo|dpo)\\b",
+        message: "We are unable to deliver to military addresses (APO/FPO/DPO).",
+      });
+    }
+    const customs = custom
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (customs.length > 0) {
+      rules.push({
+        pattern: customs.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+        message: "Your shipping address contains restricted keywords.",
+      });
+    }
+    setRegexJson(JSON.stringify(rules, null, 2));
+  };
+
+  // Sync Quantity Rows to JSON
+  const syncQtyToJson = (rows: Array<{ tag: string; max: number }>) => {
+    const obj: Record<string, number> = {};
+    for (const r of rows) {
+      if (r.tag.trim()) {
+        obj[r.tag.trim()] = Number(r.max) || 1;
+      }
+    }
+    setQtyJson(JSON.stringify(obj, null, 2));
+  };
+
+  // Client-side JSON validation
   const errors = useMemo(
     () => ({
       vip_allowlist: jsonValidationError(vipJson, "array"),
@@ -219,7 +345,6 @@ export default function CartGuardSettingsPage() {
 
   const busy = fetcher.state !== "idle";
 
-  // ── Submission ─────────────────────────────────────────────────────────────
   const submit = useCallback(
     (intent: "simulate" | "save", confirmed = false) => {
       fetcher.submit(
@@ -245,13 +370,18 @@ export default function CartGuardSettingsPage() {
   useEffect(() => {
     const data = fetcher.data;
     if (!data) return;
+    if (data.message && !data.ok) {
+      setActionError(data.message);
+    } else {
+      setActionError(null);
+    }
     if (data.saved) {
       setSaved(true);
       setNeedsConfirm(false);
       setImpact(data.impact ?? null);
       if (typeof window !== "undefined") {
         const shopifyGlobal = (window as unknown as { shopify?: { toast?: { show?: (msg: string) => void } } }).shopify;
-        shopifyGlobal?.toast?.show?.("CartGuard rules saved. Configuration is live at checkout.");
+        shopifyGlobal?.toast?.show?.("CartGuard rules saved. Active at checkout!");
       }
     } else if (data.needsConfirm) {
       setSaved(false);
@@ -262,7 +392,6 @@ export default function CartGuardSettingsPage() {
       setNeedsConfirm(false);
       setImpact(data.impact);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetcher.data]);
 
   const setToggle = (flag: keyof CartGuardSettings) => (value: boolean) =>
@@ -271,28 +400,28 @@ export default function CartGuardSettingsPage() {
   const blockedPercent =
     impact && impact.scanned > 0 ? Math.round((impact.blocked / impact.scanned) * 100) : 0;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  // CONSTRAINT: fragment parent — the parent route provides the frame; <Frame>
-  // must NOT be used here.
   return (
     <>
       <Page
-        title="CartGuard"
-        subtitle="Fraud prevention rules enforced at checkout via Shopify Functions."
+        title="CartGuard Protection Control"
+        subtitle="Automatic fraud and checkout restrictions powered by native Shopify Functions."
+        secondaryActions={[
+          {
+            content: useDeveloperMode ? "Switch to Visual Mode" : "Developer Mode (JSON)",
+            onAction: () => setUseDeveloperMode((v) => !v),
+          },
+        ]}
       >
         <Layout>
-          {/* ── Feedback banners ──────────────────────────────────────────── */}
           {saved && (
             <Layout.Section>
               <Banner
-                title="Configuration saved"
+                title="Rules successfully saved & live"
                 tone="success"
                 onDismiss={() => setSaved(false)}
               >
                 <Text as="p">
-                  The cartguard metafields were updated. Ensure the “CartGuard Validator”
-                  function is enabled under Settings → Checkout → Customizations so the
-                  rules run on your checkout.
+                  Your CartGuard rules have been updated and are now evaluated directly during checkout.
                 </Text>
               </Banner>
             </Layout.Section>
@@ -301,7 +430,7 @@ export default function CartGuardSettingsPage() {
           {needsConfirm && impact && (
             <Layout.Section>
               <Banner
-                title="Impact check before saving"
+                title="Review impact before finalizing"
                 tone="warning"
                 action={{ content: "Save anyway", onAction: () => submit("save", true) }}
                 secondaryAction={{ content: "Cancel", onAction: () => setNeedsConfirm(false) }}
@@ -320,8 +449,7 @@ export default function CartGuardSettingsPage() {
                     </List>
                   )}
                   <Text as="p" tone="subdued">
-                    Review the examples above, adjust the rules, or confirm to finalize
-                    the save.
+                    Confirm if you would like to proceed with activating these rules.
                   </Text>
                 </BlockStack>
               </Banner>
@@ -331,14 +459,14 @@ export default function CartGuardSettingsPage() {
           {!saved && !needsConfirm && impact && (
             <Layout.Section>
               <Banner
-                title="Impact check"
+                title="Impact check result"
                 tone={impact.blocked > 0 ? "warning" : "success"}
                 onDismiss={() => setImpact(null)}
               >
                 <BlockStack gap="200">
                   <Text as="p" fontWeight="semibold">
-                    {impact.blocked} of the last {impact.scanned} orders would have been
-                    blocked by these rules ({blockedPercent}%).
+                    {impact.blocked} of the last {impact.scanned} past store orders would have been
+                    blocked ({blockedPercent}%).
                   </Text>
                   {impact.samples.length > 0 && (
                     <List>
@@ -352,74 +480,65 @@ export default function CartGuardSettingsPage() {
             </Layout.Section>
           )}
 
-          {fetcher.data?.message && (
+          {actionError && (
             <Layout.Section>
-              <Banner title="Action failed" tone="critical" onDismiss={() => {}}>
-                <Text as="p">{fetcher.data.message}</Text>
+              <Banner title="Action failed" tone="critical" onDismiss={() => setActionError(null)}>
+                <Text as="p">{actionError}</Text>
               </Banner>
             </Layout.Section>
           )}
 
-          {/* ── Rule pipeline summary ─────────────────────────────────────── */}
+          {/* ── Feature 5: VIP Whitelist ──────────────────────────────────── */}
           <Layout.Section>
             <Card>
               <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  How CartGuard evaluates orders
-                </Text>
-                <List>
-                  <List.Item>
-                    <strong>VIP Allowlist</strong> — checked first; matching buyers bypass
-                    every other rule.
-                  </List.Item>
-                  <List.Item>
-                    <strong>Bulk Quantity Limiter</strong> — runs on every checkout step.
-                  </List.Item>
-                  <List.Item>
-                    <strong>PO Box &amp; Freight Forwarder Blocker</strong> — runs at
-                    checkout completion only.
-                  </List.Item>
-                  <List.Item>
-                    <strong>Geographic Zone Blocker</strong> — zips, cities and
-                    states/provinces, across every delivery group.
-                  </List.Item>
-                  <List.Item>
-                    <strong>Smart Mismatch Detector</strong> — high-risk shipping address
-                    that differs from the billing address.
-                  </List.Item>
-                </List>
-                <Text as="p" tone="subdued">
-                  Fail-open guarantee: missing or malformed configuration never crashes
-                  checkout — the affected rule is skipped and the checkout proceeds.
-                  A newly installed app is inert until you enable rules below.
-                </Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-
-          {/* ── Feature 5: VIP Allowlist ──────────────────────────────────── */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  VIP Allowlist
-                </Text>
+                <InlineStack align="space-between">
+                  <Text as="h2" variant="headingMd">
+                    VIP Customer Allowlist
+                  </Text>
+                  {toggles.enable_vip && <Badge tone="success">Active</Badge>}
+                </InlineStack>
                 <Checkbox
-                  label="Enable VIP allowlist bypass"
-                  helpText="Checked first on every rule run — buyers on this list are never blocked by CartGuard."
+                  label="Enable VIP Customer Bypass"
+                  helpText="VIP customers bypass all checkout restrictions, geographic blocks, and quantity limits."
                   checked={toggles.enable_vip}
                   onChange={setToggle("enable_vip")}
                 />
-                <TextField
-                  label="vip_allowlist (JSON array of emails or street addresses)"
-                  placeholder={EXAMPLES.vip_allowlist}
-                  value={vipJson}
-                  onChange={setVipJson}
-                  multiline={4}
-                  monospaced
-                  autoComplete="off"
-                  error={errors.vip_allowlist ?? undefined}
-                />
+
+                {toggles.enable_vip && !useDeveloperMode && (
+                  <BlockStack gap="200">
+                    <TextField
+                      label="VIP Customer Emails or Street Addresses"
+                      helpText="Enter customer email addresses or street addresses (one per line or separated by commas)."
+                      placeholder="vip@customer.com&#10;wholesale@partner.store&#10;123 Executive Blvd"
+                      value={vipInput}
+                      onChange={handleVipChange}
+                      multiline={3}
+                      autoComplete="off"
+                    />
+                    <InlineStack gap="200" wrap>
+                      {vipInput
+                        .split(/[\n,]+/)
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                        .map((item) => (
+                          <Tag key={item}>{item}</Tag>
+                        ))}
+                    </InlineStack>
+                  </BlockStack>
+                )}
+
+                {toggles.enable_vip && useDeveloperMode && (
+                  <TextField
+                    label="vip_allowlist (Raw JSON array)"
+                    value={vipJson}
+                    onChange={setVipJson}
+                    multiline={3}
+                    monospaced
+                    autoComplete="off"
+                    error={errors.vip_allowlist ?? undefined}
+                  />
+                )}
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -428,56 +547,69 @@ export default function CartGuardSettingsPage() {
           <Layout.Section>
             <Card>
               <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  PO Box &amp; Freight Forwarder Blocker
-                </Text>
+                <InlineStack align="space-between">
+                  <Text as="h2" variant="headingMd">
+                    PO Box &amp; Freight Forwarder Blocker
+                  </Text>
+                  {toggles.enable_po_box && <Badge tone="success">Active</Badge>}
+                </InlineStack>
                 <Checkbox
-                  label="Enable address pattern blocking"
-                  helpText="Tests delivery address line 1 and 2 (case-insensitive) at checkout completion only."
+                  label="Enable Address Protection"
+                  helpText="Inspects customer delivery address at checkout completion to stop undeliverable or fraud-risk orders."
                   checked={toggles.enable_po_box}
                   onChange={setToggle("enable_po_box")}
                 />
-                <TextField
-                  label="regex_rules (JSON array of { pattern, message })"
-                  placeholder={EXAMPLES.regex_rules}
-                  value={regexJson}
-                  onChange={setRegexJson}
-                  multiline={8}
-                  monospaced
-                  autoComplete="off"
-                  error={errors.regex_rules ?? undefined}
-                />
-                <Text as="p" tone="subdued">
-                  The same patterns also feed the Smart Mismatch Detector as
-                  high-risk signals.
-                </Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
 
-          {/* ── Feature 2: Bulk Quantity Limiter ──────────────────────────── */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Bulk Quantity Limiter
-                </Text>
-                <Checkbox
-                  label="Enable quantity limits by product tag"
-                  helpText="Runs on every checkout step. Quantities are aggregated per product across all cart lines."
-                  checked={toggles.enable_quantity}
-                  onChange={setToggle("enable_quantity")}
-                />
-                <TextField
-                  label="quantity_limits (JSON object of { tag: max })"
-                  placeholder={EXAMPLES.quantity_limits}
-                  value={qtyJson}
-                  onChange={setQtyJson}
-                  multiline={5}
-                  monospaced
-                  autoComplete="off"
-                  error={errors.quantity_limits ?? undefined}
-                />
+                {toggles.enable_po_box && !useDeveloperMode && (
+                  <BlockStack gap="300">
+                    <Checkbox
+                      label="Block PO Boxes and Postal Lockers (e.g., P.O. Box, Apartado Postal)"
+                      checked={blockPoBox}
+                      onChange={(v) => {
+                        setBlockPoBox(v);
+                        syncRegexToJson(v, blockFreight, blockApoFpo, customKeywords);
+                      }}
+                    />
+                    <Checkbox
+                      label="Block Freight Forwarders and Reshippers (e.g., forwarding company, reship)"
+                      checked={blockFreight}
+                      onChange={(v) => {
+                        setBlockFreight(v);
+                        syncRegexToJson(blockPoBox, v, blockApoFpo, customKeywords);
+                      }}
+                    />
+                    <Checkbox
+                      label="Block Military APO / FPO / DPO delivery addresses"
+                      checked={blockApoFpo}
+                      onChange={(v) => {
+                        setBlockApoFpo(v);
+                        syncRegexToJson(blockPoBox, blockFreight, v, customKeywords);
+                      }}
+                    />
+                    <TextField
+                      label="Custom Blocked Keywords or Phrases (optional)"
+                      helpText="Add any custom terms separated by commas (e.g., warehouse 4B, reshipper)"
+                      value={customKeywords}
+                      onChange={(val) => {
+                        setCustomKeywords(val);
+                        syncRegexToJson(blockPoBox, blockFreight, blockApoFpo, val);
+                      }}
+                      autoComplete="off"
+                    />
+                  </BlockStack>
+                )}
+
+                {toggles.enable_po_box && useDeveloperMode && (
+                  <TextField
+                    label="regex_rules (Raw JSON array)"
+                    value={regexJson}
+                    onChange={setRegexJson}
+                    multiline={6}
+                    monospaced
+                    autoComplete="off"
+                    error={errors.regex_rules ?? undefined}
+                  />
+                )}
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -486,28 +618,166 @@ export default function CartGuardSettingsPage() {
           <Layout.Section>
             <Card>
               <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Geographic Zone Blocker
-                </Text>
+                <InlineStack align="space-between">
+                  <Text as="h2" variant="headingMd">
+                    Geographic Zone &amp; Regional Blocker
+                  </Text>
+                  {toggles.enable_geo && <Badge tone="success">Active</Badge>}
+                </InlineStack>
                 <Checkbox
-                  label="Enable geographic blocking"
-                  helpText="Compares the delivery ZIP, city and state/province code against your blocklists (case-insensitive)."
+                  label="Enable Geographic Delivery Restrictions"
+                  helpText="Block delivery to specific states, provinces, cantons, cities, or postal codes worldwide (e.g. Costa Rica, Kiribati, USA, Canada)."
                   checked={toggles.enable_geo}
                   onChange={setToggle("enable_geo")}
                 />
-                <TextField
-                  label="geo_blocklist (JSON object with zips / cities / states arrays)"
-                  placeholder={EXAMPLES.geo_blocklist}
-                  value={geoJson}
-                  onChange={setGeoJson}
-                  multiline={6}
-                  monospaced
-                  autoComplete="off"
-                  error={errors.geo_blocklist ?? undefined}
+
+                {toggles.enable_geo && !useDeveloperMode && (
+                  <BlockStack gap="300">
+                    <TextField
+                      label="Blocked Postal / Zip Codes"
+                      helpText="Comma-separated or one per line (e.g. 10101, 20101, 90210)"
+                      placeholder="10101, 20101, 90210"
+                      value={geoZips}
+                      onChange={(val) => {
+                        setGeoZips(val);
+                        syncGeoToJson(val, geoCities, geoStates);
+                      }}
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Blocked Cities / Cantons / Atolls"
+                      helpText="Comma-separated (e.g. San José, Alajuela, Tarawa, Kiritimati)"
+                      placeholder="San José, Alajuela, Tarawa"
+                      value={geoCities}
+                      onChange={(val) => {
+                        setGeoCities(val);
+                        syncGeoToJson(geoZips, val, geoStates);
+                      }}
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Blocked States / Provinces / Regions"
+                      helpText="Comma-separated (e.g. Guanacaste, Limón, Line Islands, NY, CA)"
+                      placeholder="Guanacaste, Limón, Phoenix Islands, CA, NY"
+                      value={geoStates}
+                      onChange={(val) => {
+                        setGeoStates(val);
+                        syncGeoToJson(geoZips, geoCities, val);
+                      }}
+                      autoComplete="off"
+                    />
+                  </BlockStack>
+                )}
+
+                {toggles.enable_geo && useDeveloperMode && (
+                  <TextField
+                    label="geo_blocklist (Raw JSON)"
+                    value={geoJson}
+                    onChange={setGeoJson}
+                    multiline={5}
+                    monospaced
+                    autoComplete="off"
+                    error={errors.geo_blocklist ?? undefined}
+                  />
+                )}
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          {/* ── Feature 2: Bulk Quantity Limiter ──────────────────────────── */}
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="300">
+                <InlineStack align="space-between">
+                  <Text as="h2" variant="headingMd">
+                    Bulk Quantity Limiter
+                  </Text>
+                  {toggles.enable_quantity && <Badge tone="success">Active</Badge>}
+                </InlineStack>
+                <Checkbox
+                  label="Enable Quantity Limits by Product Tag"
+                  helpText="Prevents resellers or bots from ordering excessive units of tagged products."
+                  checked={toggles.enable_quantity}
+                  onChange={setToggle("enable_quantity")}
                 />
-                <Text as="p" tone="subdued">
-                  Use two-letter province/state codes in “states” (e.g. “NY”, “ON”).
-                </Text>
+
+                {toggles.enable_quantity && !useDeveloperMode && (
+                  <BlockStack gap="300">
+                    <Text as="p" tone="subdued">
+                      Specify product tags and the maximum units allowed per checkout:
+                    </Text>
+                    {qtyRows.map((row, idx) => (
+                      <InlineGrid columns={["twoThirds", "oneThird"]} gap="200" key={idx}>
+                        <TextField
+                          label="Product Tag"
+                          labelHidden
+                          placeholder="e.g. bulk, limited-edition"
+                          value={row.tag}
+                          onChange={(val) => {
+                            const copy = [...qtyRows];
+                            copy[idx].tag = val;
+                            setQtyRows(copy);
+                            syncQtyToJson(copy);
+                          }}
+                          autoComplete="off"
+                        />
+                        <InlineStack gap="200" blockAlign="center">
+                          <TextField
+                            label="Max Units"
+                            labelHidden
+                            type="number"
+                            min={1}
+                            placeholder="Max units"
+                            value={String(row.max)}
+                            onChange={(val) => {
+                              const copy = [...qtyRows];
+                              copy[idx].max = parseInt(val, 10) || 1;
+                              setQtyRows(copy);
+                              syncQtyToJson(copy);
+                            }}
+                            autoComplete="off"
+                          />
+                          {qtyRows.length > 1 && (
+                            <Button
+                              tone="critical"
+                              variant="plain"
+                              onClick={() => {
+                                const copy = qtyRows.filter((_, i) => i !== idx);
+                                setQtyRows(copy);
+                                syncQtyToJson(copy);
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </InlineStack>
+                      </InlineGrid>
+                    ))}
+                    <InlineStack>
+                      <Button
+                        size="slim"
+                        onClick={() => {
+                          const copy = [...qtyRows, { tag: "", max: 5 }];
+                          setQtyRows(copy);
+                        }}
+                      >
+                        + Add Tag Limit
+                      </Button>
+                    </InlineStack>
+                  </BlockStack>
+                )}
+
+                {toggles.enable_quantity && useDeveloperMode && (
+                  <TextField
+                    label="quantity_limits (Raw JSON)"
+                    value={qtyJson}
+                    onChange={setQtyJson}
+                    multiline={4}
+                    monospaced
+                    autoComplete="off"
+                    error={errors.quantity_limits ?? undefined}
+                  />
+                )}
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -516,59 +786,46 @@ export default function CartGuardSettingsPage() {
           <Layout.Section>
             <Card>
               <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">
-                  Smart Mismatch Detector
-                </Text>
+                <InlineStack align="space-between">
+                  <Text as="h2" variant="headingMd">
+                    Smart Mismatch Detector
+                  </Text>
+                  {toggles.enable_mismatch && <Badge tone="success">Active</Badge>}
+                </InlineStack>
                 <Checkbox
-                  label="Enable billing/shipping mismatch detection"
-                  helpText="Warns when the shipping address matches a high-risk regex_rules pattern AND differs from the billing address."
+                  label="Enable Billing / Shipping Mismatch Check"
+                  helpText="Detects when an order ships to a high-risk location that differs completely from the cardholder billing address."
                   checked={toggles.enable_mismatch}
                   onChange={setToggle("enable_mismatch")}
                 />
-                <Text as="p" tone="subdued">
-                  Billing address is not exposed by the checkout Function input today,
-                  so the rule stays inert (fail-open) at checkout until the API exposes
-                  it. The Impact Checker always simulates this rule fully using real
-                  historical billing addresses.
-                </Text>
               </BlockStack>
             </Card>
           </Layout.Section>
 
-          {/* ── Actions (Feature 6 entrypoints) ───────────────────────────── */}
+          {/* ── Actions ───────────────────────────────────────────────────── */}
           <Layout.Section>
             <PageActions
               primaryAction={{
                 content: "Save rules",
                 onAction: () => submit("save"),
-                disabled: busy || hasJsonErrors,
+                disabled: busy || (useDeveloperMode && hasJsonErrors),
+                loading: busy,
               }}
               secondaryActions={[
                 {
-                  content: "Check impact on last 100 orders",
+                  content: "Check impact on past 100 orders",
                   onAction: () => submit("simulate"),
-                  disabled: busy || hasJsonErrors,
+                  disabled: busy || (useDeveloperMode && hasJsonErrors),
                 },
               ]}
             />
-          </Layout.Section>
-
-          <Layout.Section>
-            <InlineStack align="end">
-              <Button
-                onClick={() => submit("simulate")}
-                loading={busy}
-                disabled={hasJsonErrors}
-              >
-                Simulate impact again
-              </Button>
-            </InlineStack>
           </Layout.Section>
         </Layout>
       </Page>
     </>
   );
 }
+
 
 /*
  * `authenticate` is re-exported by the Shopify Remix template's

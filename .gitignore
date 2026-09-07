@@ -8,4 +8,3 @@ prisma/*.sqlite*
 *.sqlite*
 .DS_Store
 extensions/cartguard-validator/dist
-extensions/cartguard-validator/generated

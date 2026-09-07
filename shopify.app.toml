@@ -1,6 +1,6 @@
 client_id = "a94fb70b5b04fc8e18e80b1663eae59a"
 name = "CartGuard"
-application_url = "https://cartguard.netlify.app"
+application_url = "http://localhost:3000"
 embedded = true
 
 [build]
@@ -13,9 +13,9 @@ scopes = "read_products,read_orders,write_metafields"
 
 [auth]
 redirect_urls = [
-  "https://cartguard.netlify.app/auth/callback",
-  "https://cartguard.netlify.app/auth/shopify/callback",
-  "https://cartguard.netlify.app/api/auth/callback"
+  "http://localhost:3000/auth/callback",
+  "http://localhost:3000/auth/shopify/callback",
+  "http://localhost:3000/api/auth/callback"
 ]
 
 [webhooks]

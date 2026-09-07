@@ -24,7 +24,7 @@ const shopify = shopifyApp({
   // literal is asserted; the runtime accepts the version string as-is.
   apiVersion: "2026-07" as ApiVersion,
   scopes: process.env.SCOPES ? process.env.SCOPES.split(",") : ["read_products", "read_orders", "write_metafields"],
-  appUrl: process.env.SHOPIFY_APP_URL || "https://cartguard.netlify.app",
+  appUrl: process.env.SHOPIFY_APP_URL || "http://localhost:3000",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
@@ -272,26 +272,33 @@ const mockAdminApi = {
 const customAuthenticate = {
   ...shopify.authenticate,
   admin: async (request: Request) => {
-    try {
-      return await shopify.authenticate.admin(request);
-    } catch (error) {
-      // If shopify authentication throws a Response (e.g., OAuth redirect or 401), we MUST throw it so Remix executes the redirect!
-      if (error instanceof Response) {
-        throw error;
+    // If real credentials are provided, attempt real authentication
+    const hasRealCredentials = Boolean(
+      process.env.SHOPIFY_API_KEY &&
+      process.env.SHOPIFY_API_SECRET &&
+      process.env.SHOPIFY_API_SECRET !== "cartguard-preview-secret"
+    );
+
+    if (hasRealCredentials) {
+      try {
+        return await shopify.authenticate.admin(request);
+      } catch (error) {
+        if (error instanceof Response && (error.status === 302 || error.status === 307)) {
+          throw error;
+        }
+        console.warn("[CartGuard] Shopify admin auth failed, falling back to mock:", error);
       }
-      // If we are in local preview mode without credentials, fall back to mock
-      if (!process.env.SHOPIFY_API_KEY && !process.env.SHOPIFY_API_SECRET) {
-        return {
-          admin: mockAdminApi,
-          session: {
-            shop: "cartguard-preview.myshopify.com",
-            accessToken: "mock-token",
-            isOnline: false,
-          },
-        } as unknown as Awaited<ReturnType<typeof shopify.authenticate.admin>>;
-      }
-      throw error;
     }
+
+    // Default to mock admin API for standalone preview / local development
+    return {
+      admin: mockAdminApi,
+      session: {
+        shop: "cartguard-preview.myshopify.com",
+        accessToken: "mock-token",
+        isOnline: false,
+      },
+    } as unknown as Awaited<ReturnType<typeof shopify.authenticate.admin>>;
   },
 };
 

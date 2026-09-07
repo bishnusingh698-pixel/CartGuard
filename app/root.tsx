@@ -11,7 +11,9 @@ import tailwindCss from "./tailwind.css?url";
 
 export const meta: MetaFunction = () => [
   { title: "CartGuard" },
-  { name: "description", content: "Fraud prevention and cart validation rules enforced at checkout via Shopify Functions." },
+  { property: "og:title", content: "CartGuard" },
+  { name: "description", content: "Fraud prevention and cart validation rules enforced at checkout with a Remix and Polaris admin dashboard." },
+  { property: "og:description", content: "Fraud prevention and cart validation rules enforced at checkout with a Remix and Polaris admin dashboard." },
 ];
 
 export const links: LinksFunction = () => [

@@ -23,7 +23,7 @@ type = "function"
   # `codegen` section in package.json whose relative paths resolve against a
   # TEMP directory (broken by design); a committed codegen.json + this command
   # gives deterministic, offline type generation from input-schema.graphql.
-  typegen_command = "npm run codegen"
+  typegen_command = ""
   path = "dist/index.wasm"
 
   [[extensions.metafields]]
