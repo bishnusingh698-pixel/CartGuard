@@ -1,5 +1,6 @@
 client_id = "a94fb70b5b04fc8e18e80b1663eae59a"
 name = "CartGuard"
+handle = "cartguard"
 application_url = "https://cartguard-co1f.onrender.com"
 embedded = true
 
