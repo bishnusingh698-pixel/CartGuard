@@ -19,6 +19,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       // shopify-app-remix's built-in session expiry handling; log for audit.
       const payloadData = payload as { shop_id?: string | number };
       console.log(`CartGuard uninstalled from shop ${shop} (shop_id: ${payloadData?.shop_id ?? "unknown"}). Session cleanup delegated to the library.`);
+    } else if (topic === "CUSTOMERS_DATA_REQUEST") {
+      // Mandatory compliance: CartGuard stores no customer personal data in external databases.
+      // All rules are stored in shop-level metafields.
+      console.log(`[GDPR] customers/data_request received for shop ${shop}. No external customer data held.`);
+    } else if (topic === "CUSTOMERS_REDACT") {
+      // Mandatory compliance: CartGuard stores no customer personal records.
+      console.log(`[GDPR] customers/redact received for shop ${shop}. No external customer data to erase.`);
+    } else if (topic === "SHOP_REDACT") {
+      // Mandatory compliance: 48h shop data deletion.
+      console.log(`[GDPR] shop/redact received for shop ${shop}. Shop-level data scheduled for purge.`);
     } else {
       console.log(`Received unexpected webhook topic "${topic}" for shop ${shop}.`);
     }

@@ -39,12 +39,15 @@ export type RunInputQuery = {
         city?: string | null;
         provinceCode?: string | null;
         zip?: string | null;
+        countryCode?: string | null;
       } | null;
     }>;
     billingAddress?: {
       address1?: string | null;
       city?: string | null;
+      provinceCode?: string | null;
       zip?: string | null;
+      countryCode?: string | null;
     } | null;
   };
   shop: {

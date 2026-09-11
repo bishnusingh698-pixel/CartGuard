@@ -83,6 +83,8 @@ type CartGuardSettings = {
 
 type RegexRule = {
   pattern?: unknown;
+  country?: unknown;
+  city?: unknown;
   message?: unknown;
 };
 
@@ -90,6 +92,7 @@ type GeoBlocklist = {
   zips?: unknown;
   cities?: unknown;
   states?: unknown;
+  countries?: unknown;
 };
 
 /** `{ "tag": max }` per spec; `{ "tag": { max, message } }` tolerated. */
@@ -161,8 +164,49 @@ function parseJsonSafe<T>(raw: string | null): T | null {
   }
 }
 
+function stripDiacritics(text: string): string {
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+const COMMON_COUNTRY_CODES: Record<string, string> = {
+  "costa rica": "CR",
+  "costarrica": "CR",
+  "kazakhstan": "KZ",
+  "казахстан": "KZ",
+  "qazaqstan": "KZ",
+  "united states": "US",
+  "usa": "US",
+  "canada": "CA",
+  "united kingdom": "GB",
+  "uk": "GB",
+  "great britain": "GB",
+  "mexico": "MX",
+  "méxico": "MX",
+  "spain": "ES",
+  "españa": "ES",
+  "russia": "RU",
+  "россия": "RU",
+  "germany": "DE",
+  "france": "FR",
+  "china": "CN",
+  "japan": "JP",
+  "australia": "AU",
+  "brazil": "BR",
+  "brasil": "BR",
+  "nigeria": "NG",
+  "india": "IN",
+};
+
+function normalizeCountry(val: unknown): string {
+  const raw = String(val ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw.length === 2) return raw.toUpperCase();
+  const stripped = stripDiacritics(raw);
+  return COMMON_COUNTRY_CODES[stripped] || COMMON_COUNTRY_CODES[raw] || raw.toUpperCase();
+}
+
 function normalizeText(value: unknown): string {
-  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return stripDiacritics(String(value ?? "").trim().toLowerCase()).replace(/\s+/g, " ");
 }
 
 function normalizeZip(value: unknown): string {
@@ -174,27 +218,37 @@ function asTrimmedString(value: unknown): string {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Feature 5 — VIP Allowlist (evaluated FIRST)
+ * Feature 5 — VIP Allowlist
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
  * True when the buyer email OR a delivery street address appears verbatim
  * (case-insensitive) in the allowlist. Entries may be emails or addresses.
+ * Note: Never matches generic address2 units alone.
  */
 function isAllowlisted(input: RunInput, allowlist: unknown[]): boolean {
-  const entries = allowlist
-    .map((entry) => normalizeText(entry))
-    .filter((entry) => entry.length > 0);
-  if (entries.length === 0) return false;
+  const emails = new Set<string>();
+  const addresses = new Set<string>();
+
+  for (const entry of allowlist) {
+    const norm = normalizeText(entry);
+    if (!norm) continue;
+    if (norm.includes("@")) {
+      emails.add(norm);
+    } else if (norm.length >= 6) {
+      addresses.add(norm);
+    }
+  }
+
+  if (emails.size === 0 && addresses.size === 0) return false;
 
   const email = normalizeText(input.cart?.buyerIdentity?.email);
-  if (email && entries.includes(email)) return true;
+  if (email && emails.has(email)) return true;
 
   const groups = Array.isArray(input.cart?.deliveryGroups) ? input.cart.deliveryGroups : [];
   for (const group of groups) {
     const address1 = normalizeText(group?.deliveryAddress?.address1);
-    const address2 = normalizeText(group?.deliveryAddress?.address2);
-    if ((address1 && entries.includes(address1)) || (address2 && entries.includes(address2))) {
+    if (address1 && addresses.has(address1)) {
       return true;
     }
   }
@@ -252,20 +306,34 @@ function evaluateQuantityLimits(
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Feature 1 — PO Box & Freight Forwarder Blocker (CHECKOUT_COMPLETION only)
+ * Feature 1 — Address, Street & Freight Forwarder Blocker
  * ──────────────────────────────────────────────────────────────────────────── */
 
 function evaluateRegexRules(deliveryGroups: DeliveryGroup[], rules: RegexRule[]): ValidationError[] {
   const errors: ValidationError[] = [];
 
-  // Pre-compile regexes safely once to avoid instruction and allocation overhead in Wasm
-  const compiledRules: Array<{ regex: RegExp; message?: unknown }> = [];
+  // Pre-compile regexes safely with unicode flag and optional country/city scoping
+  const compiledRules: Array<{
+    regex: RegExp;
+    country?: string;
+    city?: string;
+    message?: unknown;
+  }> = [];
+
   for (const rule of rules) {
     const pattern = typeof rule?.pattern === "string" ? rule.pattern.trim() : "";
     if (!pattern) continue;
     try {
+      let rx: RegExp;
+      try {
+        rx = new RegExp(pattern, "iu");
+      } catch {
+        rx = new RegExp(pattern, "i");
+      }
       compiledRules.push({
-        regex: new RegExp(pattern, "i"),
+        regex: rx,
+        country: rule.country ? normalizeCountry(rule.country) : undefined,
+        city: rule.city ? normalizeText(rule.city) : undefined,
         message: rule.message,
       });
     } catch {
@@ -279,18 +347,33 @@ function evaluateRegexRules(deliveryGroups: DeliveryGroup[], rules: RegexRule[])
     const address = group?.deliveryAddress;
     if (!address) return;
 
-    for (const line of [address.address1, address.address2]) {
-      const text = asTrimmedString(line);
-      if (!text) continue;
+    const countryCode = normalizeCountry(address.countryCode);
+    const city = normalizeText(address.city);
+    const rawAddress1 = asTrimmedString(address.address1);
+    const rawAddress2 = asTrimmedString(address.address2);
+    const combinedAddress = `${rawAddress1} ${rawAddress2} ${address.city ?? ""} ${address.provinceCode ?? ""} ${address.zip ?? ""} ${address.countryCode ?? ""}`.trim();
 
-      for (const compiled of compiledRules) {
-        if (compiled.regex.test(text)) {
-          errors.push({
-            localizedMessage: asTrimmedString(compiled.message) || DEFAULT_ADDRESS_BLOCK_MESSAGE,
-            target: `$.cart.deliveryGroups[${groupIndex}].deliveryAddress`,
-          });
-          break; // first matching rule per address line is enough
-        }
+    for (const compiled of compiledRules) {
+      // If rule is scoped to a specific country (e.g. "CR" for Costa Rica), verify country
+      if (compiled.country && countryCode && compiled.country !== countryCode) {
+        continue;
+      }
+      // If rule is scoped to a city, verify city
+      if (compiled.city && city && !city.includes(compiled.city)) {
+        continue;
+      }
+
+      // Test against address1, address2, or full combined address
+      if (
+        (rawAddress1 && compiled.regex.test(rawAddress1)) ||
+        (rawAddress2 && compiled.regex.test(rawAddress2)) ||
+        compiled.regex.test(combinedAddress)
+      ) {
+        errors.push({
+          localizedMessage: asTrimmedString(compiled.message) || DEFAULT_ADDRESS_BLOCK_MESSAGE,
+          target: `$.cart.deliveryGroups[${groupIndex}].deliveryAddress`,
+        });
+        break; // first matching rule per delivery group is enough
       }
     }
   });
@@ -302,38 +385,57 @@ function evaluateRegexRules(deliveryGroups: DeliveryGroup[], rules: RegexRule[])
 function matchesHighRiskPattern(
   address1: unknown,
   address2: unknown,
+  countryCode: unknown,
+  city: unknown,
   rules: RegexRule[],
 ): boolean {
-  const compiledRegexes: RegExp[] = [];
+  const normCountry = normalizeCountry(countryCode);
+  const normCity = normalizeText(city);
+
   for (const rule of rules) {
     const pattern = typeof rule?.pattern === "string" ? rule.pattern.trim() : "";
     if (!pattern) continue;
+
+    if (rule.country && normCountry && normalizeCountry(rule.country) !== normCountry) {
+      continue;
+    }
+    if (rule.city && normCity && !normCity.includes(normalizeText(rule.city))) {
+      continue;
+    }
+
     try {
-      compiledRegexes.push(new RegExp(pattern, "i"));
+      let regex: RegExp;
+      try {
+        regex = new RegExp(pattern, "iu");
+      } catch {
+        regex = new RegExp(pattern, "i");
+      }
+      const line1 = asTrimmedString(address1);
+      const line2 = asTrimmedString(address2);
+      if ((line1 && regex.test(line1)) || (line2 && regex.test(line2))) {
+        return true;
+      }
     } catch {
       // Skip invalid regex
     }
   }
 
-  if (compiledRegexes.length === 0) return false;
-
-  for (const line of [asTrimmedString(address1), asTrimmedString(address2)]) {
-    if (!line) continue;
-    for (const regex of compiledRegexes) {
-      if (regex.test(line)) return true;
-    }
-  }
   return false;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Feature 3 — Geographic Zone Blocker
+ * Feature 3 — Geographic Zone Blocker (Countries, Zips, Cities, States)
  * ──────────────────────────────────────────────────────────────────────────── */
 
 function evaluateGeoBlocklist(
   deliveryGroups: DeliveryGroup[],
   blocklist: GeoBlocklist,
 ): ValidationError[] {
+  const countries = new Set(
+    (Array.isArray(blocklist?.countries) ? blocklist.countries : [])
+      .map((c) => normalizeCountry(c))
+      .filter((c) => c.length > 0),
+  );
   const zips = new Set(
     (Array.isArray(blocklist?.zips) ? blocklist.zips : [])
       .map((zip) => normalizeZip(zip))
@@ -350,7 +452,7 @@ function evaluateGeoBlocklist(
       .filter((state) => state.length > 0),
   );
 
-  if (zips.size === 0 && cities.size === 0 && states.size === 0) return [];
+  if (countries.size === 0 && zips.size === 0 && cities.size === 0 && states.size === 0) return [];
 
   const errors: ValidationError[] = [];
 
@@ -358,6 +460,15 @@ function evaluateGeoBlocklist(
   deliveryGroups.forEach((group, groupIndex) => {
     const address = group?.deliveryAddress;
     if (!address) return;
+
+    const country = normalizeCountry(address.countryCode);
+    if (country && countries.has(country)) {
+      errors.push({
+        localizedMessage: DEFAULT_GEO_BLOCK_MESSAGE,
+        target: `$.cart.deliveryGroups[${groupIndex}].deliveryAddress`,
+      });
+      return;
+    }
 
     const zip = normalizeZip(address.zip);
     if (zip && zips.has(zip)) {
@@ -394,37 +505,38 @@ function evaluateGeoBlocklist(
  * Feature 4 — Smart Mismatch Detector
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/**
- * Fires when BOTH hold:
- *   (a) the shipping street address matches a high-risk pattern (reuses the
- *       `regex_rules` patterns — PO boxes / freight forwarders are exactly the
- *       reroute indicators merchants care about), and
- *   (b) the shipping address differs from the billing address.
- *
- * `cart.billingAddress` is read defensively (constraint: "may be null").
- * If null, the check is skipped (fail-open). The Admin Impact Checker always
- * has real historical billing addresses and simulates this rule fully.
- */
 function evaluateMismatch(
   input: RunInput,
   deliveryGroups: DeliveryGroup[],
   rules: RegexRule[],
 ): string | null {
-  // Spec target: $.cart.deliveryGroups[0].deliveryAddress
   const shipping = deliveryGroups[0]?.deliveryAddress;
   if (!shipping) return null;
-
-  if (!matchesHighRiskPattern(shipping.address1, shipping.address2, rules)) return null;
 
   const billing = input.cart?.billingAddress;
   if (!billing) return null; // billing null → skip this check (fail-open)
 
+  const isHighRisk = matchesHighRiskPattern(
+    shipping.address1,
+    shipping.address2,
+    shipping.countryCode,
+    shipping.city,
+    rules,
+  );
+
+  const shippingCountry = normalizeCountry(shipping.countryCode);
+  const billingCountry = normalizeCountry(billing.countryCode);
+  const isCrossBorderMismatch = Boolean(shippingCountry && billingCountry && shippingCountry !== billingCountry);
+
   const mismatched =
     normalizeText(billing.address1) !== normalizeText(shipping.address1) ||
-    normalizeText(billing.city) !== normalizeText(shipping.city) ||
     normalizeZip(billing.zip) !== normalizeZip(shipping.zip);
 
-  return mismatched ? MISMATCH_WARNING_MESSAGE : null;
+  if ((isHighRisk && mismatched) || (isCrossBorderMismatch && mismatched)) {
+    return MISMATCH_WARNING_MESSAGE;
+  }
+
+  return null;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -447,7 +559,13 @@ function evaluateAllRules(input: RunInput): ValidationError[] {
     }
   };
 
-  // 1) VIP Allowlist — checked FIRST: on match bypass ALL rules immediately.
+  const deliveryGroups: DeliveryGroup[] = Array.isArray(input.cart?.deliveryGroups)
+    ? input.cart.deliveryGroups
+    : [];
+
+  // 1) VIP Allowlist — checked FIRST: on match bypass ALL rules unconditionally!
+  // Any buyer identified as VIP (email or address) completely bypasses all restrictions,
+  // geographic blocks, address filters, quantity limits, and mismatches.
   if (settings.enable_vip === true) {
     const allowlist = parseJsonSafe<unknown[]>(readMetafield(input, MF_KEYS.VIP_ALLOWLIST));
     if (Array.isArray(allowlist)) {
@@ -457,7 +575,7 @@ function evaluateAllRules(input: RunInput): ValidationError[] {
       } catch {
         bypass = false;
       }
-      if (bypass) return []; // ← spec: immediate clean result
+      if (bypass) return []; // Clean bypass: VIP bypasses EVERYTHING
     }
   }
 
@@ -471,20 +589,15 @@ function evaluateAllRules(input: RunInput): ValidationError[] {
     }
   }
 
-  const deliveryGroups: DeliveryGroup[] = Array.isArray(input.cart?.deliveryGroups)
-    ? input.cart.deliveryGroups
-    : [];
-  const completing = input.buyerJourney?.step === "CHECKOUT_COMPLETION";
-
-  // 3) PO Box & Freight Forwarder Blocker — CHECKOUT_COMPLETION only.
-  if (settings.enable_po_box === true && completing) {
+  // 3) Address, Street & Freight Forwarder Blocker
+  if (settings.enable_po_box === true && deliveryGroups.length > 0) {
     const rules = parseJsonSafe<RegexRule[]>(readMetafield(input, MF_KEYS.REGEX_RULES));
     if (Array.isArray(rules)) {
       runFeature(() => evaluateRegexRules(deliveryGroups, rules));
     }
   }
 
-  // 4) Geographic Zone Blocker.
+  // 4) Geographic Zone Blocker (Countries, Zips, Cities, States)
   if (settings.enable_geo === true) {
     const blocklist = parseJsonSafe<GeoBlocklist>(readMetafield(input, MF_KEYS.GEO_BLOCKLIST));
     if (blocklist && typeof blocklist === "object" && !Array.isArray(blocklist)) {

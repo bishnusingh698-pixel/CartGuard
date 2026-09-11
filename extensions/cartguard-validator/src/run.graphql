@@ -25,12 +25,15 @@ query RunInput {
         city
         provinceCode
         zip
+        countryCode
       }
     }
     billingAddress {
       address1
       city
+      provinceCode
       zip
+      countryCode
     }
   }
   shop {

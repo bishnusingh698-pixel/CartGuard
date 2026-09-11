@@ -41,10 +41,24 @@ export type DraftConfig = {
   vip_allowlist: string;
 };
 
+export type RegexRule = {
+  pattern: string;
+  country?: string;
+  city?: string;
+  message?: string;
+};
+
+export type GeoBlocklist = {
+  zips: string[];
+  cities: string[];
+  states: string[];
+  countries: string[];
+};
+
 export type ParsedRules = {
-  regexRules: Array<{ pattern: string; message?: string }>;
+  regexRules: RegexRule[];
   quantityLimits: Record<string, number | { max: number; message?: string }>;
-  geoBlocklist: { zips: string[]; cities: string[]; states: string[] };
+  geoBlocklist: GeoBlocklist;
   vipAllowlist: string[];
 };
 
@@ -125,18 +139,28 @@ export function validateDraftConfig(
     fieldErrors.regex_rules = "Expected a JSON array of { pattern, message } objects.";
   } else {
     regexRules.forEach((rule, index) => {
-      const entry = rule as { pattern?: unknown; message?: unknown };
+      const entry = rule as { pattern?: unknown; message?: unknown; country?: unknown; city?: unknown };
       if (typeof entry?.pattern !== "string" || entry.pattern.trim().length === 0) {
         fieldErrors.regex_rules = `Rule ${index + 1}: "pattern" must be a non-empty string.`;
       } else {
         try {
-          new RegExp(entry.pattern, "i");
-        } catch (error) {
-          fieldErrors.regex_rules = `Rule ${index + 1}: invalid regex — ${(error as Error).message}`;
+          new RegExp(entry.pattern, "iu");
+        } catch {
+          try {
+            new RegExp(entry.pattern, "i");
+          } catch (error) {
+            fieldErrors.regex_rules = `Rule ${index + 1}: invalid regex — ${(error as Error).message}`;
+          }
         }
       }
       if (entry?.message !== undefined && typeof entry.message !== "string") {
         fieldErrors.regex_rules = `Rule ${index + 1}: "message" must be a string.`;
+      }
+      if (entry?.country !== undefined && typeof entry.country !== "string") {
+        fieldErrors.regex_rules = `Rule ${index + 1}: "country" must be a string (e.g. "CR", "KZ").`;
+      }
+      if (entry?.city !== undefined && typeof entry.city !== "string") {
+        fieldErrors.regex_rules = `Rule ${index + 1}: "city" must be a string.`;
       }
     });
   }
@@ -149,20 +173,20 @@ export function validateDraftConfig(
   } else {
     for (const [tag, value] of Object.entries(quantityLimits)) {
       const max = typeof value === "number" ? value : Number((value as { max?: unknown })?.max);
-      if (!tag.trim()) fieldErrors.quantity_limits = "Tags must be non-empty strings.";
-      else if (!Number.isFinite(max) || max <= 0) {
+      if (!tag.trim()) continue; // gracefully ignore empty tags rather than blocking save
+      if (!Number.isFinite(max) || max <= 0) {
         fieldErrors.quantity_limits = `Tag "${tag}": limit must be a positive number.`;
       }
     }
   }
 
-  const geo = safeJsonParse<{ zips?: unknown; cities?: unknown; states?: unknown }>(
+  const geo = safeJsonParse<{ zips?: unknown; cities?: unknown; states?: unknown; countries?: unknown }>(
     draft.geo_blocklist.trim() || EMPTY_DEFAULTS.geo_blocklist,
   );
   if (!geo || typeof geo !== "object" || Array.isArray(geo)) {
-    fieldErrors.geo_blocklist = 'Expected a JSON object with "zips", "cities", "states" arrays.';
+    fieldErrors.geo_blocklist = 'Expected a JSON object with "zips", "cities", "states", "countries" arrays.';
   } else {
-    for (const key of ["zips", "cities", "states"] as const) {
+    for (const key of ["zips", "cities", "states", "countries"] as const) {
       const list = geo[key];
       if (list === undefined) continue;
       if (!Array.isArray(list) || list.some((entry) => typeof entry !== "string")) {
@@ -190,10 +214,17 @@ export function parseDraftConfig(
   if (Array.isArray(parsedRegex)) {
     for (const rule of parsedRegex) {
       if (typeof rule?.pattern === "string" && rule.pattern.trim()) {
+        const item = rule as { pattern: string; country?: unknown; city?: unknown; message?: unknown };
         regexRules.push({
-          pattern: rule.pattern,
-          ...(typeof rule.message === "string" && rule.message.trim()
-            ? { message: rule.message }
+          pattern: item.pattern,
+          ...(typeof item.country === "string" && item.country.trim()
+            ? { country: item.country.trim() }
+            : {}),
+          ...(typeof item.city === "string" && item.city.trim()
+            ? { city: item.city.trim() }
+            : {}),
+          ...(typeof item.message === "string" && item.message.trim()
+            ? { message: item.message.trim() }
             : {}),
         });
       }
@@ -217,7 +248,7 @@ export function parseDraftConfig(
     }
   }
 
-  const geoSource = safeJsonParse<{ zips?: unknown; cities?: unknown; states?: unknown }>(
+  const geoSource = safeJsonParse<{ zips?: unknown; cities?: unknown; states?: unknown; countries?: unknown }>(
     draft.geo_blocklist.trim() || EMPTY_DEFAULTS.geo_blocklist,
   );
   const toStringArray = (value: unknown): string[] =>
@@ -228,6 +259,7 @@ export function parseDraftConfig(
     zips: toStringArray(geoSource?.zips),
     cities: toStringArray(geoSource?.cities),
     states: toStringArray(geoSource?.states),
+    countries: toStringArray(geoSource?.countries),
   };
 
   const vipSource = safeJsonParse<unknown[]>(
@@ -303,12 +335,14 @@ export const LAST_ORDERS_QUERY = /* GraphQL */ `
           city
           provinceCode
           zip
+          countryCode
         }
         billingAddress {
           address1
           city
           provinceCode
           zip
+          countryCode
         }
         lineItems(first: 50) {
           nodes {
@@ -386,6 +420,47 @@ export async function writeConfiguration(
 const IMPACT_SAMPLE_LIMIT = 5;
 const IMPACT_ORDER_COUNT = 100;
 
+export function stripDiacritics(text: string): string {
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+export const COMMON_COUNTRY_CODES: Record<string, string> = {
+  "costa rica": "CR",
+  "costarrica": "CR",
+  "kazakhstan": "KZ",
+  "казахстан": "KZ",
+  "qazaqstan": "KZ",
+  "united states": "US",
+  "usa": "US",
+  "canada": "CA",
+  "united kingdom": "GB",
+  "uk": "GB",
+  "great britain": "GB",
+  "mexico": "MX",
+  "méxico": "MX",
+  "spain": "ES",
+  "españa": "ES",
+  "russia": "RU",
+  "россия": "RU",
+  "germany": "DE",
+  "france": "FR",
+  "china": "CN",
+  "japan": "JP",
+  "australia": "AU",
+  "brazil": "BR",
+  "brasil": "BR",
+  "nigeria": "NG",
+  "india": "IN",
+};
+
+export function normalizeCountry(val: unknown): string {
+  const raw = String(val ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw.length === 2) return raw.toUpperCase();
+  const stripped = stripDiacritics(raw);
+  return COMMON_COUNTRY_CODES[stripped] || COMMON_COUNTRY_CODES[raw] || raw.toUpperCase();
+}
+
 /** Mirrors run.ts ordering: VIP bypass → quantity → regex → geo → mismatch. */
 export function simulateOrders(
   orders: unknown[],
@@ -404,14 +479,32 @@ export function simulateOrders(
     enable_mismatch: true,
   };
 
-  // Pre-compile regex rules safely to avoid re-instantiation overhead and handle invalid patterns
-  const compiledRegexRules: Array<{ pattern: string; regex: RegExp }> = [];
+  const normalizeText = (value: unknown): string =>
+    stripDiacritics(String(value ?? "").trim().toLowerCase()).replace(/\s+/g, " ");
+  const normalizeZip = (value: unknown): string =>
+    String(value ?? "").replace(/\s+/g, "").toLowerCase();
+
+  // Pre-compile regex rules safely with unicode support and optional country/city scoping
+  const compiledRegexRules: Array<{
+    pattern: string;
+    regex: RegExp;
+    country?: string;
+    city?: string;
+  }> = [];
   for (const rule of rules.regexRules) {
     if (typeof rule?.pattern === "string" && rule.pattern.trim()) {
       try {
+        let rx: RegExp;
+        try {
+          rx = new RegExp(rule.pattern, "iu");
+        } catch {
+          rx = new RegExp(rule.pattern, "i");
+        }
         compiledRegexRules.push({
           pattern: rule.pattern,
-          regex: new RegExp(rule.pattern, "i"),
+          regex: rx,
+          country: rule.country ? normalizeCountry(rule.country) : undefined,
+          city: rule.city ? normalizeText(rule.city) : undefined,
         });
       } catch {
         // Skip invalid regex (fail-open)
@@ -419,29 +512,24 @@ export function simulateOrders(
     }
   }
 
-  const matchesAnyRule = (text: string): { matched: boolean; pattern: string } => {
-    if (!text) return { matched: false, pattern: "" };
-    for (const item of compiledRegexRules) {
-      if (item.regex.test(text)) {
-        return { matched: true, pattern: item.pattern };
-      }
-    }
-    return { matched: false, pattern: "" };
-  };
-
-  const normalizeText = (value: unknown): string =>
-    String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-  const normalizeZip = (value: unknown): string =>
-    String(value ?? "").replace(/\s+/g, "").toLowerCase();
-
   const blockedZips = new Set(rules.geoBlocklist.zips.map(normalizeZip).filter(Boolean));
   const blockedCities = new Set(rules.geoBlocklist.cities.map(normalizeText).filter(Boolean));
   const blockedStates = new Set(rules.geoBlocklist.states.map(normalizeText).filter(Boolean));
+  const blockedCountries = new Set(rules.geoBlocklist.countries.map(normalizeCountry).filter(Boolean));
 
   // Normalized VIP entries (emails and street addresses)
-  const normalizedVipEntries = new Set(
-    rules.vipAllowlist.map(normalizeText).filter((entry) => entry.length > 0),
-  );
+  const normalizedVipEmails = new Set<string>();
+  const normalizedVipAddresses = new Set<string>();
+  for (const entry of rules.vipAllowlist) {
+    const norm = normalizeText(entry);
+    if (!norm) continue;
+    if (norm.includes("@")) {
+      normalizedVipEmails.add(norm);
+    } else if (norm.length >= 6) {
+      // Must be a substantial address, not just "Apt 1" or "Suite 2"
+      normalizedVipAddresses.add(norm);
+    }
+  }
 
   for (const order of orders) {
     const typed = order as {
@@ -455,12 +543,14 @@ export function simulateOrders(
         city?: string | null;
         provinceCode?: string | null;
         zip?: string | null;
+        countryCode?: string | null;
       } | null;
       billingAddress?: {
         address1?: string | null;
         city?: string | null;
         provinceCode?: string | null;
         zip?: string | null;
+        countryCode?: string | null;
       } | null;
       lineItems?: { nodes?: Array<{ quantity?: number | null; variant?: { product?: { id?: string | null; tags?: string[] | null } | null } | null }> | null } | null;
     };
@@ -473,17 +563,22 @@ export function simulateOrders(
     const email = normalizeText(typed?.email ?? typed?.customer?.emailAddress?.emailAddress);
     const shipping = typed?.shippingAddress;
     const address1 = normalizeText(shipping?.address1);
-    const address2 = normalizeText(shipping?.address2);
+    const shippingCountry = normalizeCountry(shipping?.countryCode);
+    const shippingCity = normalizeText(shipping?.city);
+    const shippingZip = normalizeZip(shipping?.zip);
+    const shippingState = normalizeText(shipping?.provinceCode);
 
-    // 1) VIP allowlist bypass — checked first, identical to the Function (checks email AND address lines)
-    if (effectiveSettings.enable_vip && normalizedVipEntries.size > 0) {
-      if (
-        (email && normalizedVipEntries.has(email)) ||
-        (address1 && normalizedVipEntries.has(address1)) ||
-        (address2 && normalizedVipEntries.has(address2))
-      ) {
-        continue;
-      }
+    // 1) VIP allowlist check — VIP bypasses EVERYTHING unconditionally!
+    // Any buyer on the VIP allowlist (by email or address) bypasses all restrictions,
+    // geographic blocks, quantity limits, and mismatches.
+    const isVip = Boolean(
+      effectiveSettings.enable_vip &&
+      ((email && normalizedVipEmails.has(email)) ||
+        (address1 && normalizedVipAddresses.has(address1)))
+    );
+
+    if (isVip) {
+      continue;
     }
 
     const reasons: string[] = [];
@@ -502,12 +597,12 @@ export function simulateOrders(
         }
         perProduct.set(productId, aggregate);
       }
-      for (const [, aggregate] of perProduct) {
-        for (const [tag, limit] of Object.entries(rules.quantityLimits)) {
-          if (!aggregate.tags.has(tag)) continue;
+      for (const [prodId, aggregate] of perProduct) {
+        for (const [key, limit] of Object.entries(rules.quantityLimits)) {
           const max = typeof limit === "number" ? limit : limit.max;
-          if (aggregate.quantity > max) {
-            reasons.push(`${aggregate.quantity} units tagged "${tag}" exceed the limit of ${max}`);
+          const matches = key === "all" || key === "*" || prodId.includes(key) || aggregate.tags.has(key);
+          if (matches && aggregate.quantity > max) {
+            reasons.push(`${aggregate.quantity} units exceed limit of ${max} for "${key}"`);
           }
         }
       }
@@ -516,51 +611,60 @@ export function simulateOrders(
     if (shipping) {
       const rawAddress1 = String(shipping.address1 ?? "").trim();
       const rawAddress2 = String(shipping.address2 ?? "").trim();
+      const combinedAddress = `${rawAddress1} ${rawAddress2} ${shipping.city ?? ""} ${shipping.provinceCode ?? ""} ${shipping.zip ?? ""} ${shipping.countryCode ?? ""}`.trim();
 
-      // 3) PO box / freight forwarder regex (historical orders are past
-      //    CHECKOUT_COMPLETION, so the journey gate is satisfied).
+      // 3) Address / street / PO Box regex matching (with country/city scoping)
       let matchedRulePattern = "";
       if (effectiveSettings.enable_po_box) {
-        const match1 = matchesAnyRule(rawAddress1);
-        const match2 = matchesAnyRule(rawAddress2);
-        if (match1.matched) {
-          matchedRulePattern = match1.pattern;
-          reasons.push(`address matched pattern "${match1.pattern}"`);
-        } else if (match2.matched) {
-          matchedRulePattern = match2.pattern;
-          reasons.push(`address matched pattern "${match2.pattern}"`);
+        for (const item of compiledRegexRules) {
+          // If the rule is scoped to a country (e.g. "CR" for Costa Rica), verify country
+          if (item.country && shippingCountry && item.country !== shippingCountry) {
+            continue;
+          }
+          // If the rule is scoped to a city, verify city
+          if (item.city && shippingCity && !shippingCity.includes(item.city)) {
+            continue;
+          }
+
+          // Test against address1, address2, and full combined address
+          if (
+            item.regex.test(rawAddress1) ||
+            item.regex.test(rawAddress2) ||
+            item.regex.test(combinedAddress)
+          ) {
+            matchedRulePattern = item.pattern;
+            reasons.push(`address matched pattern "${item.pattern}"`);
+            break;
+          }
         }
       }
 
-      // 4) Geographic blocklists.
+      // 4) Geographic blocklists (countries, zips, cities, states).
       if (effectiveSettings.enable_geo) {
-        const zip = normalizeZip(shipping.zip);
-        const city = normalizeText(shipping.city);
-        const state = normalizeText(shipping.provinceCode);
-        if (zip && blockedZips.has(zip)) {
+        if (shippingCountry && blockedCountries.has(shippingCountry)) {
+          reasons.push(`country "${shipping.countryCode}" is blocklisted`);
+        } else if (shippingZip && blockedZips.has(shippingZip)) {
           reasons.push(`ZIP ${shipping.zip} is blocklisted`);
-        } else if (city && blockedCities.has(city)) {
+        } else if (shippingCity && blockedCities.has(shippingCity)) {
           reasons.push(`city "${shipping.city}" is blocklisted`);
-        } else if (state && blockedStates.has(state)) {
+        } else if (shippingState && blockedStates.has(shippingState)) {
           reasons.push(`state/province "${shipping.provinceCode}" is blocklisted`);
         }
       }
 
-      // 5) Smart mismatch — full simulation (Admin API exposes billing).
+      // 5) Smart mismatch — full simulation.
       if (effectiveSettings.enable_mismatch) {
         const billing = typed?.billingAddress;
-        const isHighRisk =
-          Boolean(matchedRulePattern) ||
-          matchesAnyRule(rawAddress1).matched ||
-          matchesAnyRule(rawAddress2).matched;
+        if (billing) {
+          const billingCountry = normalizeCountry(billing.countryCode);
+          const isHighRisk = Boolean(matchedRulePattern);
+          const isCrossBorderMismatch = Boolean(shippingCountry && billingCountry && shippingCountry !== billingCountry);
+          const isStreetOrZipMismatch =
+            normalizeText(billing.address1) !== address1 ||
+            normalizeZip(billing.zip) !== shippingZip;
 
-        if (isHighRisk && billing) {
-          const mismatched =
-            normalizeText(billing.address1) !== normalizeText(shipping.address1) ||
-            normalizeText(billing.city) !== normalizeText(shipping.city) ||
-            normalizeZip(billing.zip) !== normalizeZip(shipping.zip);
-          if (mismatched) {
-            reasons.push("billing/shipping mismatch with a high-risk address");
+          if ((isHighRisk && isStreetOrZipMismatch) || (isCrossBorderMismatch && isStreetOrZipMismatch)) {
+            reasons.push("billing/shipping mismatch with high risk or cross-border address");
           }
         }
       }

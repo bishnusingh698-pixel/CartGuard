@@ -4,8 +4,8 @@ services:
     env: node
     plan: free
     region: ohio
-    buildCommand: npm install && npx prisma db push && npm run build
-    startCommand: npx prisma db push && npm start
+    buildCommand: npm install && npm run build
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production

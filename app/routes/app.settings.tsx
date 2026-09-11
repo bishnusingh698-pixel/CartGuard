@@ -188,16 +188,17 @@ function safeParseArray(raw: string): string[] {
   }
 }
 
-function safeParseGeo(raw: string): { zips: string[]; cities: string[]; states: string[] } {
+function safeParseGeo(raw: string): { countries: string[]; zips: string[]; cities: string[]; states: string[] } {
   try {
     const val = JSON.parse(raw);
     return {
+      countries: Array.isArray(val?.countries) ? val.countries.map(String) : [],
       zips: Array.isArray(val?.zips) ? val.zips.map(String) : [],
       cities: Array.isArray(val?.cities) ? val.cities.map(String) : [],
       states: Array.isArray(val?.states) ? val.states.map(String) : [],
     };
   } catch {
-    return { zips: [], cities: [], states: [] };
+    return { countries: [], zips: [], cities: [], states: [] };
   }
 }
 
@@ -242,9 +243,12 @@ export default function CartGuardSettingsPage() {
   const [blockFreight, setBlockFreight] = useState(true);
   const [blockApoFpo, setBlockApoFpo] = useState(true);
   const [customKeywords, setCustomKeywords] = useState("");
+  const [scopedStreet, setScopedStreet] = useState("");
+  const [scopedCountry, setScopedCountry] = useState("");
 
   // Geo Blocklist
   const initialGeo = useMemo(() => safeParseGeo(initialFields.geo_blocklist), [initialFields.geo_blocklist]);
+  const [geoCountries, setGeoCountries] = useState(initialGeo.countries.join(", "));
   const [geoZips, setGeoZips] = useState(initialGeo.zips.join(", "));
   const [geoCities, setGeoCities] = useState(initialGeo.cities.join(", "));
   const [geoStates, setGeoStates] = useState(initialGeo.states.join(", "));
@@ -271,7 +275,7 @@ export default function CartGuardSettingsPage() {
   };
 
   // Sync friendly Geo inputs to JSON
-  const syncGeoToJson = (zipsStr: string, citiesStr: string, statesStr: string) => {
+  const syncGeoToJson = (countriesStr: string, zipsStr: string, citiesStr: string, statesStr: string) => {
     const parseItems = (str: string) =>
       str
         .split(/[\n,]+/)
@@ -279,6 +283,7 @@ export default function CartGuardSettingsPage() {
         .filter(Boolean);
 
     const geoObj = {
+      countries: parseItems(countriesStr),
       zips: parseItems(zipsStr),
       cities: parseItems(citiesStr),
       states: parseItems(statesStr),
@@ -287,8 +292,15 @@ export default function CartGuardSettingsPage() {
   };
 
   // Sync friendly PO Box / Freight toggles to JSON
-  const syncRegexToJson = (po: boolean, freight: boolean, apo: boolean, custom: string) => {
-    const rules: Array<{ pattern: string; message: string }> = [];
+  const syncRegexToJson = (
+    po: boolean,
+    freight: boolean,
+    apo: boolean,
+    custom: string,
+    street = scopedStreet,
+    country = scopedCountry,
+  ) => {
+    const rules: Array<{ pattern: string; country?: string; message: string }> = [];
     if (po) {
       rules.push({
         pattern: "p\\.?o\\.? box|post office box|postal box|apartado postal",
@@ -315,6 +327,16 @@ export default function CartGuardSettingsPage() {
       rules.push({
         pattern: customs.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
         message: "Your shipping address contains restricted keywords.",
+      });
+    }
+    if (street.trim()) {
+      const cTrim = country.trim();
+      rules.push({
+        pattern: street.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        country: cTrim ? cTrim : undefined,
+        message: cTrim
+          ? `Delivery to ${street.trim()} in ${cTrim} is restricted.`
+          : `Delivery to ${street.trim()} is restricted.`,
       });
     }
     setRegexJson(JSON.stringify(rules, null, 2));
@@ -507,9 +529,12 @@ export default function CartGuardSettingsPage() {
 
                 {toggles.enable_vip && !useDeveloperMode && (
                   <BlockStack gap="200">
+                    <Banner tone="info">
+                      <strong>VIP White-Glove Bypass:</strong> Any buyer whose email address or delivery street address is listed here will completely and unconditionally bypass <em>all</em> restrictions, address blocklists, geographic/country blocks, quantity caps, and mismatch warnings.
+                    </Banner>
                     <TextField
                       label="VIP Customer Emails or Street Addresses"
-                      helpText="Enter customer email addresses or street addresses (one per line or separated by commas)."
+                      helpText="Enter customer email addresses or street addresses (one per line or separated by commas). VIPs bypass everything without exception."
                       placeholder="vip@customer.com&#10;wholesale@partner.store&#10;123 Executive Blvd"
                       value={vipInput}
                       onChange={handleVipChange}
@@ -592,10 +617,34 @@ export default function CartGuardSettingsPage() {
                       value={customKeywords}
                       onChange={(val) => {
                         setCustomKeywords(val);
-                        syncRegexToJson(blockPoBox, blockFreight, blockApoFpo, val);
+                        syncRegexToJson(blockPoBox, blockFreight, blockApoFpo, val, scopedStreet, scopedCountry);
                       }}
                       autoComplete="off"
                     />
+                    <InlineGrid columns={["twoThirds", "oneThird"]} gap="200">
+                      <TextField
+                        label="Specific Street / Address to Block (optional)"
+                        helpText="e.g. Calle 5, Avenida Central"
+                        placeholder="Calle 5"
+                        value={scopedStreet}
+                        onChange={(val) => {
+                          setScopedStreet(val);
+                          syncRegexToJson(blockPoBox, blockFreight, blockApoFpo, customKeywords, val, scopedCountry);
+                        }}
+                        autoComplete="off"
+                      />
+                      <TextField
+                        label="In Specific Country (optional)"
+                        helpText="Country name or code (e.g. Costa Rica, CR, Kazakhstan, KZ). Leave blank to block globally."
+                        placeholder="Costa Rica or CR"
+                        value={scopedCountry}
+                        onChange={(val) => {
+                          setScopedCountry(val);
+                          syncRegexToJson(blockPoBox, blockFreight, blockApoFpo, customKeywords, scopedStreet, val);
+                        }}
+                        autoComplete="off"
+                      />
+                    </InlineGrid>
                   </BlockStack>
                 )}
 
@@ -634,13 +683,24 @@ export default function CartGuardSettingsPage() {
                 {toggles.enable_geo && !useDeveloperMode && (
                   <BlockStack gap="300">
                     <TextField
+                      label="Blocked Countries / Sovereign States"
+                      helpText="Comma-separated country names or 2-letter ISO codes (e.g. KZ, CR, Kazakhstan, Costa Rica, Russia). Hard embargo blocks override VIP bypass."
+                      placeholder="KZ, CR, Costa Rica, Kazakhstan"
+                      value={geoCountries}
+                      onChange={(val) => {
+                        setGeoCountries(val);
+                        syncGeoToJson(val, geoZips, geoCities, geoStates);
+                      }}
+                      autoComplete="off"
+                    />
+                    <TextField
                       label="Blocked Postal / Zip Codes"
                       helpText="Comma-separated or one per line (e.g. 10101, 20101, 90210)"
                       placeholder="10101, 20101, 90210"
                       value={geoZips}
                       onChange={(val) => {
                         setGeoZips(val);
-                        syncGeoToJson(val, geoCities, geoStates);
+                        syncGeoToJson(geoCountries, val, geoCities, geoStates);
                       }}
                       autoComplete="off"
                     />
@@ -651,7 +711,7 @@ export default function CartGuardSettingsPage() {
                       value={geoCities}
                       onChange={(val) => {
                         setGeoCities(val);
-                        syncGeoToJson(geoZips, val, geoStates);
+                        syncGeoToJson(geoCountries, geoZips, val, geoStates);
                       }}
                       autoComplete="off"
                     />
@@ -662,7 +722,7 @@ export default function CartGuardSettingsPage() {
                       value={geoStates}
                       onChange={(val) => {
                         setGeoStates(val);
-                        syncGeoToJson(geoZips, geoCities, val);
+                        syncGeoToJson(geoCountries, geoZips, geoCities, val);
                       }}
                       autoComplete="off"
                     />

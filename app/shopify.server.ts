@@ -56,6 +56,7 @@ const inMemoryMetafields: Record<string, string> = {
     reseller: 25,
   }),
   geo_blocklist: JSON.stringify({
+    countries: [],
     zips: ["90210", "10001"],
     cities: ["Faketown"],
     states: ["XX"],
@@ -128,12 +129,14 @@ const mockAdminApi = {
             city: "New York",
             provinceCode: "NY",
             zip: "10001",
+            countryCode: "US",
           },
           billingAddress: {
             address1: "123 Main St",
             city: "New York",
             provinceCode: "NY",
             zip: "10001",
+            countryCode: "US",
           },
           lineItems: {
             nodes: [
@@ -154,12 +157,14 @@ const mockAdminApi = {
             city: "Austin",
             provinceCode: "TX",
             zip: "78701",
+            countryCode: "US",
           },
           billingAddress: {
             address1: "P.O. Box 452",
             city: "Austin",
             provinceCode: "TX",
             zip: "78701",
+            countryCode: "US",
           },
           lineItems: {
             nodes: [
@@ -180,12 +185,14 @@ const mockAdminApi = {
             city: "Beverly Hills",
             provinceCode: "CA",
             zip: "90210",
+            countryCode: "US",
           },
           billingAddress: {
             address1: "PO Box 999",
             city: "Beverly Hills",
             provinceCode: "CA",
             zip: "90210",
+            countryCode: "US",
           },
           lineItems: {
             nodes: [
@@ -206,12 +213,14 @@ const mockAdminApi = {
             city: "Chicago",
             provinceCode: "IL",
             zip: "60601",
+            countryCode: "US",
           },
           billingAddress: {
             address1: "45 Industrial Blvd",
             city: "Chicago",
             provinceCode: "IL",
             zip: "60601",
+            countryCode: "US",
           },
           lineItems: {
             nodes: [
@@ -232,18 +241,76 @@ const mockAdminApi = {
             city: "Miami",
             provinceCode: "FL",
             zip: "33101",
+            countryCode: "US",
           },
           billingAddress: {
             address1: "12 Pine St",
             city: "Seattle",
             provinceCode: "WA",
             zip: "98101",
+            countryCode: "US",
           },
           lineItems: {
             nodes: [
               {
                 quantity: 1,
                 variant: { product: { id: "gid://shopify/Product/4", tags: ["electronics"] } },
+              },
+            ],
+          },
+        },
+        {
+          id: "gid://shopify/Order/1006",
+          name: "#1006",
+          createdAt: "2026-09-06T09:30:00Z",
+          email: "costarica.buyer@gmail.com",
+          shippingAddress: {
+            address1: "Calle 5, Avenida Central",
+            city: "San José",
+            provinceCode: "SJ",
+            zip: "10101",
+            countryCode: "CR",
+          },
+          billingAddress: {
+            address1: "Calle 5, Avenida Central",
+            city: "San José",
+            provinceCode: "SJ",
+            zip: "10101",
+            countryCode: "CR",
+          },
+          lineItems: {
+            nodes: [
+              {
+                quantity: 1,
+                variant: { product: { id: "gid://shopify/Product/5", tags: ["standard"] } },
+              },
+            ],
+          },
+        },
+        {
+          id: "gid://shopify/Order/1007",
+          name: "#1007",
+          createdAt: "2026-09-07T15:45:00Z",
+          email: "almaty.buyer@mail.kz",
+          shippingAddress: {
+            address1: "Abay Avenue 45",
+            city: "Almaty",
+            provinceCode: "ALA",
+            zip: "050000",
+            countryCode: "KZ",
+          },
+          billingAddress: {
+            address1: "Abay Avenue 45",
+            city: "Almaty",
+            provinceCode: "ALA",
+            zip: "050000",
+            countryCode: "KZ",
+          },
+          lineItems: {
+            nodes: [
+              {
+                quantity: 2,
+                variant: { product: { id: "gid://shopify/Product/6", tags: ["standard"] } },
               },
             ],
           },
