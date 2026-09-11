@@ -36,11 +36,5 @@ export default function App() {
 }
 
 export function ErrorBoundary() {
-  const error = useRouteError();
-  return (
-    <div className="p-4 bg-red-50 text-red-900">
-      <h1 className="text-xl font-bold">App Error</h1>
-      <pre>{JSON.stringify(error, null, 2)}</pre>
-    </div>
-  );
+  return boundary.error(useRouteError());
 }
