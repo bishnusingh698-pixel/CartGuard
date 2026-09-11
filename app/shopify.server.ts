@@ -23,7 +23,7 @@ const shopify = shopifyApp({
   // copy of shopify-app-remix type-declares an older ApiVersion union, so the
   // literal is asserted; the runtime accepts the version string as-is.
   apiVersion: "2026-07" as ApiVersion,
-  scopes: process.env.SCOPES ? process.env.SCOPES.split(",") : ["read_products", "read_orders", "write_metafields"],
+  scopes: process.env.SCOPES ? process.env.SCOPES.split(",") : ["read_products", "read_orders"],
   appUrl: process.env.SHOPIFY_APP_URL || "http://localhost:3000",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),

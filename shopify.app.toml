@@ -8,7 +8,7 @@ automatically_update_urls_on_dev = true
 dev_store_url = "test-shop-qay2qcgj.myshopify.com"
 
 [access_scopes]
-scopes = "read_products,read_orders,write_metafields"
+scopes = "read_products,read_orders"
 
 [auth]
 redirect_urls = [
@@ -18,23 +18,16 @@ redirect_urls = [
 ]
 
 [webhooks]
-api_version = "2026-07"
+api_version = "2024-10"
 
   [[webhooks.subscriptions]]
   topics = [ "app/uninstalled" ]
   uri = "/webhooks"
 
-  [[webhooks.subscriptions]]
-  topics = [ "customers/data_request" ]
-  uri = "/webhooks"
-
-  [[webhooks.subscriptions]]
-  topics = [ "customers/redact" ]
-  uri = "/webhooks"
-
-  [[webhooks.subscriptions]]
-  topics = [ "shop/redact" ]
-  uri = "/webhooks"
+  [webhooks.privacy_compliance]
+  customer_data_request_url = "https://cartguard-co1f.onrender.com/webhooks"
+  customer_deletion_url = "https://cartguard-co1f.onrender.com/webhooks"
+  shop_deletion_url = "https://cartguard-co1f.onrender.com/webhooks"
 
 [pos]
 embedded = false

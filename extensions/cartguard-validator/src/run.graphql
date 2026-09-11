@@ -1,7 +1,4 @@
 query RunInput {
-  buyerJourney {
-    step
-  }
   cart {
     buyerIdentity {
       email
@@ -11,7 +8,6 @@ query RunInput {
       merchandise {
         __typename
         ... on ProductVariant {
-          id
           product {
             id
           }
@@ -30,8 +26,6 @@ query RunInput {
     }
     billingAddress {
       address1
-      city
-      provinceCode
       zip
       countryCode
     }
