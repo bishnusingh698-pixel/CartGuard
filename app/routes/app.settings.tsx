@@ -1,20 +1,17 @@
 /**
- * CartGuard — Admin settings route (Remix + Polaris).
+ * CartGuard admin settings (Remix + Polaris).
  *
- * Architectural notes:
- *  - Parent route (app/routes/app.tsx) provides the App Bridge frame, so this
- *    page MUST render a React Fragment as its parent — no <Frame> wrapper.
- *  - All configuration lives in Shop Metafields (namespace "cartguard",
- *    type single_line_text_field, stringified JSON). No external database.
- *  - Impact Checker (Feature 6): "Check impact" and "Save" both run the
- *    simulator against the last 100 orders server-side. Saving with a
- *    non-zero projected impact shows a warning banner + explicit confirm
- *    before the metafield write is finalized.
+ * - Rules are stored in app-owned shop metafields ($app:cartguard, json).
+ * - Saving also makes sure CartGuard's checkout rule (a Shopify Validation
+ *   running the cartguard-validator Function) exists and is enabled.
+ * - "Check impact" simulates the rules on recent orders with the same rule
+ *   engine the checkout Function uses.
  */
 
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { useFetcher, useLoaderData } from "@remix-run/react";
+import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-remix/server";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -35,861 +32,703 @@ import {
   TextField,
 } from "@shopify/polaris";
 
-// Provided by the Shopify Remix template's app/shopify.server.ts scaffold.
 import { authenticate } from "../shopify.server";
-
+import { errorMessage } from "../lib/admin-api.server";
 import {
   type ActionResponse,
-  type CartGuardSettings,
+  type DraftConfig,
   type ImpactResult,
-  CARTGUARD_METAFIELDS_QUERY,
-  FEATURE_FLAGS,
+  effectiveRaw,
   parseDraftConfig,
-  parseSettings,
-  prettyJson,
+  readConfiguration,
+  saveConfiguration,
   simulateImpact,
   validateDraftConfig,
-  writeConfiguration,
 } from "../lib/cartguard.server";
+import { type ValidationStatus, getValidationStatus } from "../lib/validation.server";
+import {
+  ADDRESS_PRESETS,
+  FEATURE_FLAGS,
+  parseConfig,
+  type CartGuardSettings,
+  type RegexRule,
+  type RuleConfig,
+} from "../../extensions/cartguard-validator/src/rules";
 
-export const headers: HeadersFunction = (headersArgs) => {
-  return boundary.headers(headersArgs);
-};
+export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Loader — read current configuration from Shop metafields
- * ──────────────────────────────────────────────────────────────────────────── */
+/* ── Loader ────────────────────────────────────────────────────────────────── */
 
-type LoaderData = {
-  settings: CartGuardSettings;
-  fields: {
-    vip_allowlist: string;
-    regex_rules: string;
-    quantity_limits: string;
-    geo_blocklist: string;
-  };
-};
+type LoaderData = { config: RuleConfig; validation: ValidationStatus; needsMigration: boolean };
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin } = await authenticate.admin(request);
-
-  const response = await admin.graphql(CARTGUARD_METAFIELDS_QUERY);
-  const body = (await response.json()) as {
-    data?: {
-      shop?: {
-        metafields?: {
-          nodes?: Array<{ key?: string | null; value?: string | null } | null> | null;
-        } | null;
-      } | null;
-    };
-  };
-
-  const metafields = body?.data?.shop?.metafields?.nodes ?? [];
-  const valueOf = (key: string): string | null => {
-    const match = metafields.find((metafield) => metafield?.key === key);
-    return typeof match?.value === "string" ? match.value : null;
-  };
-
-  return json<LoaderData>({
-    settings: parseSettings(valueOf("settings")),
-    fields: {
-      vip_allowlist: prettyJson(valueOf("vip_allowlist"), ""),
-      regex_rules: prettyJson(valueOf("regex_rules"), ""),
-      quantity_limits: prettyJson(valueOf("quantity_limits"), ""),
-      geo_blocklist: prettyJson(valueOf("geo_blocklist"), ""),
-    },
-  });
+  const [stored, validation] = await Promise.all([readConfiguration(admin), getValidationStatus(admin)]);
+  // Rules saved by older builds live in the public namespace, which the
+  // checkout Function doesn't read. They only take effect after a save.
+  const needsMigration = !stored.current && Boolean(stored.legacy);
+  return json<LoaderData>({ config: parseConfig(effectiveRaw(stored)), validation, needsMigration });
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Action — simulate impact / save configuration
- * ──────────────────────────────────────────────────────────────────────────── */
+/* ── Action ────────────────────────────────────────────────────────────────── */
 
 export async function action({ request }: ActionFunctionArgs) {
   const { admin } = await authenticate.admin(request);
 
   const form = await request.formData();
-  const intent = String(form.get("intent") ?? "save");
-  const confirmed = String(form.get("confirmed") ?? "false") === "true";
-
-  const draft = {
+  const intent = form.get("intent") === "simulate" ? "simulate" : "save";
+  const confirmed = form.get("confirmed") === "true";
+  const draft: DraftConfig = {
     regex_rules: String(form.get("regex_rules") ?? ""),
     quantity_limits: String(form.get("quantity_limits") ?? ""),
     geo_blocklist: String(form.get("geo_blocklist") ?? ""),
     vip_allowlist: String(form.get("vip_allowlist") ?? ""),
   };
-
   const settings = {} as CartGuardSettings;
-  for (const flag of FEATURE_FLAGS) {
-    settings[flag] = String(form.get(flag) ?? "false") === "true";
+  for (const flag of FEATURE_FLAGS) settings[flag] = form.get(flag) === "true";
+
+  const fieldErrors = validateDraftConfig(draft);
+  if (Object.keys(fieldErrors).length > 0) {
+    return json<ActionResponse>(
+      { ok: false, fieldErrors, message: "Some rules need fixing before they can be saved." },
+      { status: 400 },
+    );
   }
+  const config = parseDraftConfig(draft, settings);
 
   try {
-    const fieldErrors = validateDraftConfig(draft);
-    if (Object.keys(fieldErrors).length > 0) {
-      return json<ActionResponse>({
-        ok: false,
-        fieldErrors,
-        message: "Please check your rules configuration before saving.",
-      });
-    }
-
-    const rules = parseDraftConfig(draft);
-
     if (intent === "simulate") {
-      const impact = await simulateImpact(admin, rules, settings);
-      return json<ActionResponse>({ ok: true, impact, needsConfirm: false, saved: false });
+      const impact = await simulateImpact(admin, config);
+      return json<ActionResponse>({ ok: true, impact });
     }
 
-    const impact = await simulateImpact(admin, rules, settings);
-    if (!confirmed && impact.blocked > 0) {
-      return json<ActionResponse>({ ok: true, needsConfirm: true, impact, saved: false });
+    let impact: ImpactResult | undefined;
+    // The merchant already reviewed the impact when confirming, so skip the
+    // (slow) simulation on confirmed saves.
+    if (!confirmed) {
+      try {
+        impact = await simulateImpact(admin, config);
+      } catch (error) {
+        if (error instanceof Response) throw error;
+        return json<ActionResponse>({
+          ok: true,
+          needsConfirm: true,
+          impactError: `We couldn't check these rules against recent orders (${errorMessage(error)}).`,
+        });
+      }
+      if (impact.blocked > 0) {
+        return json<ActionResponse>({ ok: true, needsConfirm: true, impact });
+      }
     }
 
-    await writeConfiguration(admin, rules, settings);
-    return json<ActionResponse>({ ok: true, saved: true, needsConfirm: false, impact });
+    const { validationWarning } = await saveConfiguration(admin, config);
+    return json<ActionResponse>({ ok: true, saved: true, impact, validationWarning });
   } catch (error) {
+    if (error instanceof Response) throw error;
+    console.error("[CartGuard] Settings action failed:", error);
     return json<ActionResponse>(
-      { ok: false, message: `CartGuard could not complete the request: ${(error as Error).message}` },
+      { ok: false, message: `CartGuard couldn't complete the request: ${errorMessage(error)}` },
       { status: 500 },
     );
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Client-side Helpers
- * ──────────────────────────────────────────────────────────────────────────── */
+/* ── Visual editor state ───────────────────────────────────────────────────── */
 
-type JsonKind = "array" | "object";
+type QtyRow = { id: string; key: string; max: string; message?: string };
 
-function jsonValidationError(value: string, kind: JsonKind): string | null {
+type VisualState = {
+  vip: string;
+  poBox: boolean;
+  freight: boolean;
+  military: boolean;
+  keywords: string;
+  street: string;
+  streetCountry: string;
+  countries: string;
+  zips: string;
+  cities: string;
+  states: string;
+  qtyRows: QtyRow[];
+};
+
+let rowSeq = 0;
+const newRow = (key = "", max = "10", message?: string): QtyRow => ({ id: `qty-${++rowSeq}`, key, max, message });
+
+const splitList = (value: string) =>
+  value
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const KEYWORD_MESSAGE = "Your delivery address contains words we can't ship to. Please use a different address.";
+const STREET_MESSAGE = "We can't deliver to this address. Please use a different delivery address.";
+
+function visualFromConfig(config: RuleConfig): { visual: VisualState; customRules: RegexRule[] } {
+  const byPreset = (preset: string) => config.regexRules.find((rule) => rule.preset === preset);
+  const keywordRule = byPreset("keywords");
+  const streetRule = byPreset("street");
+  // Rules the visual editor owns. Everything else (JSON-mode rules, unknown
+  // presets, duplicates) is kept as-is so switching editors never drops a rule.
+  const owned = new Set<RegexRule>(
+    [byPreset("po_box"), byPreset("freight"), byPreset("military"), keywordRule, streetRule].filter(
+      (rule): rule is RegexRule => Boolean(rule),
+    ),
+  );
+  return {
+    visual: {
+      vip: config.vipAllowlist.join("\n"),
+      poBox: Boolean(byPreset("po_box")),
+      freight: Boolean(byPreset("freight")),
+      military: Boolean(byPreset("military")),
+      keywords: (keywordRule?.keywords ?? []).join(", "),
+      street: streetRule?.street ?? "",
+      streetCountry: streetRule?.country ?? "",
+      countries: config.geoBlocklist.countries.join(", "),
+      zips: config.geoBlocklist.zips.join(", "),
+      cities: config.geoBlocklist.cities.join(", "),
+      states: config.geoBlocklist.states.join(", "),
+      qtyRows: Object.entries(config.quantityLimits).map(([key, limit]) => newRow(key, String(limit.max), limit.message)),
+    },
+    customRules: config.regexRules.filter((rule) => !owned.has(rule)),
+  };
+}
+
+function rulesFromVisual(visual: VisualState, customRules: RegexRule[]): RegexRule[] {
+  const rules: RegexRule[] = [];
+  const addPreset = (preset: keyof typeof ADDRESS_PRESETS) => {
+    const { pattern, message, country } = ADDRESS_PRESETS[preset];
+    rules.push({ preset, pattern, message, ...(country ? { country } : {}) });
+  };
+  if (visual.poBox) addPreset("po_box");
+  if (visual.freight) addPreset("freight");
+  if (visual.military) addPreset("military");
+
+  const keywords = splitList(visual.keywords);
+  if (keywords.length > 0) {
+    rules.push({ preset: "keywords", keywords, pattern: keywords.map(escapeRegex).join("|"), message: KEYWORD_MESSAGE });
+  }
+  const street = visual.street.trim();
+  if (street) {
+    const country = visual.streetCountry.trim();
+    rules.push({ preset: "street", street, pattern: escapeRegex(street), message: STREET_MESSAGE, ...(country ? { country } : {}) });
+  }
+  return [...rules, ...customRules];
+}
+
+function draftFromVisual(visual: VisualState, customRules: RegexRule[]): DraftConfig {
+  const quantity: Record<string, number | { max: number; message: string }> = {};
+  for (const row of visual.qtyRows) {
+    const key = row.key.trim();
+    const max = Number.parseInt(row.max, 10);
+    if (!key || !Number.isFinite(max) || max < 1) continue;
+    quantity[key] = row.message ? { max, message: row.message } : max;
+  }
+  return {
+    vip_allowlist: JSON.stringify(splitList(visual.vip), null, 2),
+    regex_rules: JSON.stringify(rulesFromVisual(visual, customRules), null, 2),
+    quantity_limits: JSON.stringify(quantity, null, 2),
+    geo_blocklist: JSON.stringify(
+      {
+        countries: splitList(visual.countries),
+        zips: splitList(visual.zips),
+        cities: splitList(visual.cities),
+        states: splitList(visual.states),
+      },
+      null,
+      2,
+    ),
+  };
+}
+
+function jsonValidationError(value: string, kind: "array" | "object"): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   try {
     const parsed = JSON.parse(trimmed);
-    if (kind === "array" && !Array.isArray(parsed)) {
-      return "Expected an array list.";
-    }
+    if (kind === "array" && !Array.isArray(parsed)) return "Expected a JSON array.";
     if (kind === "object" && (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))) {
-      return "Expected a key-value object.";
+      return "Expected a JSON object.";
     }
     return null;
   } catch (error) {
-    return `Formatting issue: ${(error as Error).message}`;
+    return `Invalid JSON: ${(error as Error).message}`;
   }
 }
 
-function safeParseArray(raw: string): string[] {
-  try {
-    const val = JSON.parse(raw);
-    return Array.isArray(val) ? val.map(String) : [];
-  } catch {
-    return [];
+const FIELD_LABELS: Record<string, string> = {
+  regex_rules: "Address rules",
+  quantity_limits: "Quantity limits",
+  geo_blocklist: "Geographic blocklist",
+  vip_allowlist: "VIP allowlist",
+};
+
+function ValidationStatusBanner({ status }: { status: ValidationStatus }) {
+  if (status.state === "active") return null;
+  if (status.state === "function_not_deployed") {
+    return (
+      <Banner tone="critical" title="The CartGuard checkout function isn't deployed">
+        <Text as="p">Deploy the app with shopify app deploy, then save your rules to switch CartGuard on at checkout.</Text>
+      </Banner>
+    );
   }
+  if (status.state === "unknown") {
+    return (
+      <Banner tone="warning" title="Couldn't check whether CartGuard is active at checkout">
+        <Text as="p">{status.message ?? "Unknown error."}</Text>
+      </Banner>
+    );
+  }
+  return (
+    <Banner tone="warning" title="CartGuard isn't active at checkout yet">
+      <Text as="p">Save your rules to switch CartGuard on. Until then, no checkout is blocked.</Text>
+    </Banner>
+  );
 }
 
-function safeParseGeo(raw: string): { countries: string[]; zips: string[]; cities: string[]; states: string[] } {
-  try {
-    const val = JSON.parse(raw);
-    return {
-      countries: Array.isArray(val?.countries) ? val.countries.map(String) : [],
-      zips: Array.isArray(val?.zips) ? val.zips.map(String) : [],
-      cities: Array.isArray(val?.cities) ? val.cities.map(String) : [],
-      states: Array.isArray(val?.states) ? val.states.map(String) : [],
-    };
-  } catch {
-    return { countries: [], zips: [], cities: [], states: [] };
-  }
-}
-
-function safeParseQty(raw: string): Array<{ tag: string; max: number }> {
-  try {
-    const val = JSON.parse(raw);
-    if (typeof val === "object" && val !== null && !Array.isArray(val)) {
-      return Object.entries(val).map(([tag, limit]) => ({
-        tag,
-        max: typeof limit === "number" ? limit : typeof limit === "object" && limit !== null && "max" in limit ? Number((limit as { max: number }).max) : 1,
-      }));
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Settings page
- * ──────────────────────────────────────────────────────────────────────────── */
+/* ── Page ──────────────────────────────────────────────────────────────────── */
 
 export default function CartGuardSettingsPage() {
-  const { settings: initialSettings, fields: initialFields } = useLoaderData<typeof loader>();
+  const { config, validation, needsMigration } = useLoaderData<typeof loader>() as unknown as LoaderData;
   const fetcher = useFetcher<ActionResponse>();
+  const shopify = useAppBridge();
 
-  const [toggles, setToggles] = useState<CartGuardSettings>(initialSettings);
-  const [vipJson, setVipJson] = useState(initialFields.vip_allowlist);
-  const [regexJson, setRegexJson] = useState(initialFields.regex_rules);
-  const [qtyJson, setQtyJson] = useState(initialFields.quantity_limits);
-  const [geoJson, setGeoJson] = useState(initialFields.geo_blocklist);
+  const [toggles, setToggles] = useState<CartGuardSettings>(config.settings);
+  const [visual, setVisual] = useState<VisualState>(() => visualFromConfig(config).visual);
+  const [customRules, setCustomRules] = useState<RegexRule[]>(() => visualFromConfig(config).customRules);
+  const [mode, setMode] = useState<"visual" | "json">("visual");
+  const [jsonDraft, setJsonDraft] = useState<DraftConfig>(() => {
+    const initial = visualFromConfig(config);
+    return draftFromVisual(initial.visual, initial.customRules);
+  });
+  const [modeError, setModeError] = useState<string | null>(null);
+  const [result, setResult] = useState<ActionResponse | null>(null);
 
-  // Friendly Visual UI State
-  const [useDeveloperMode, setUseDeveloperMode] = useState(false);
-
-  // VIP
-  const initialVip = useMemo(() => safeParseArray(initialFields.vip_allowlist), [initialFields.vip_allowlist]);
-  const [vipInput, setVipInput] = useState(initialVip.join("\n"));
-
-  // PO Box & Freight
-  const [blockPoBox, setBlockPoBox] = useState(true);
-  const [blockFreight, setBlockFreight] = useState(true);
-  const [blockApoFpo, setBlockApoFpo] = useState(true);
-  const [customKeywords, setCustomKeywords] = useState("");
-  const [scopedStreet, setScopedStreet] = useState("");
-  const [scopedCountry, setScopedCountry] = useState("");
-
-  // Geo Blocklist
-  const initialGeo = useMemo(() => safeParseGeo(initialFields.geo_blocklist), [initialFields.geo_blocklist]);
-  const [geoCountries, setGeoCountries] = useState(initialGeo.countries.join(", "));
-  const [geoZips, setGeoZips] = useState(initialGeo.zips.join(", "));
-  const [geoCities, setGeoCities] = useState(initialGeo.cities.join(", "));
-  const [geoStates, setGeoStates] = useState(initialGeo.states.join(", "));
-
-  // Quantity Limits
-  const initialQtyList = useMemo(() => safeParseQty(initialFields.quantity_limits), [initialFields.quantity_limits]);
-  const [qtyRows, setQtyRows] = useState<Array<{ tag: string; max: number }>>(
-    initialQtyList.length > 0 ? initialQtyList : [{ tag: "bulk", max: 10 }]
-  );
-
-  const [impact, setImpact] = useState<ImpactResult | null>(null);
-  const [needsConfirm, setNeedsConfirm] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  // Sync friendly VIP inputs to JSON
-  const handleVipChange = (val: string) => {
-    setVipInput(val);
-    const parsed = val
-      .split(/[\n,]+/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-    setVipJson(JSON.stringify(parsed, null, 2));
-  };
-
-  // Sync friendly Geo inputs to JSON
-  const syncGeoToJson = (countriesStr: string, zipsStr: string, citiesStr: string, statesStr: string) => {
-    const parseItems = (str: string) =>
-      str
-        .split(/[\n,]+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-    const geoObj = {
-      countries: parseItems(countriesStr),
-      zips: parseItems(zipsStr),
-      cities: parseItems(citiesStr),
-      states: parseItems(statesStr),
-    };
-    setGeoJson(JSON.stringify(geoObj, null, 2));
-  };
-
-  // Sync friendly PO Box / Freight toggles to JSON
-  const syncRegexToJson = (
-    po: boolean,
-    freight: boolean,
-    apo: boolean,
-    custom: string,
-    street = scopedStreet,
-    country = scopedCountry,
-  ) => {
-    const rules: Array<{ pattern: string; country?: string; message: string }> = [];
-    if (po) {
-      rules.push({
-        pattern: "p\\.?o\\.? box|post office box|postal box|apartado postal",
-        message: "We cannot ship to PO Boxes. Please provide a valid physical street address.",
-      });
-    }
-    if (freight) {
-      rules.push({
-        pattern: "freight forwarder|forwarding (company|agent)|reship|reshipper|transshipment|suite \\d{3,}",
-        message: "We do not ship to freight forwarders or reshippers.",
-      });
-    }
-    if (apo) {
-      rules.push({
-        pattern: "\\b(apo|fpo|dpo)\\b",
-        message: "We are unable to deliver to military addresses (APO/FPO/DPO).",
-      });
-    }
-    const customs = custom
-      .split(/[\n,]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (customs.length > 0) {
-      rules.push({
-        pattern: customs.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
-        message: "Your shipping address contains restricted keywords.",
-      });
-    }
-    if (street.trim()) {
-      const cTrim = country.trim();
-      rules.push({
-        pattern: street.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-        country: cTrim ? cTrim : undefined,
-        message: cTrim
-          ? `Delivery to ${street.trim()} in ${cTrim} is restricted.`
-          : `Delivery to ${street.trim()} is restricted.`,
-      });
-    }
-    setRegexJson(JSON.stringify(rules, null, 2));
-  };
-
-  // Sync Quantity Rows to JSON
-  const syncQtyToJson = (rows: Array<{ tag: string; max: number }>) => {
-    const obj: Record<string, number> = {};
-    for (const r of rows) {
-      if (r.tag.trim()) {
-        obj[r.tag.trim()] = Number(r.max) || 1;
-      }
-    }
-    setQtyJson(JSON.stringify(obj, null, 2));
-  };
-
-  // Client-side JSON validation
-  const errors = useMemo(
-    () => ({
-      vip_allowlist: jsonValidationError(vipJson, "array"),
-      regex_rules: jsonValidationError(regexJson, "array"),
-      quantity_limits: jsonValidationError(qtyJson, "object"),
-      geo_blocklist: jsonValidationError(geoJson, "object"),
-    }),
-    [vipJson, regexJson, qtyJson, geoJson],
-  );
-  const hasJsonErrors = Object.values(errors).some(Boolean);
-
-  const busy = fetcher.state !== "idle";
-
-  const submit = useCallback(
-    (intent: "simulate" | "save", confirmed = false) => {
-      fetcher.submit(
-        {
-          intent,
-          confirmed: String(confirmed),
-          enable_vip: String(toggles.enable_vip),
-          enable_po_box: String(toggles.enable_po_box),
-          enable_quantity: String(toggles.enable_quantity),
-          enable_geo: String(toggles.enable_geo),
-          enable_mismatch: String(toggles.enable_mismatch),
-          vip_allowlist: vipJson,
-          regex_rules: regexJson,
-          quantity_limits: qtyJson,
-          geo_blocklist: geoJson,
-        },
-        { method: "post" },
-      );
-    },
-    [fetcher, toggles, vipJson, regexJson, qtyJson, geoJson],
-  );
-
-  useEffect(() => {
-    const data = fetcher.data;
-    if (!data) return;
-    if (data.message && !data.ok) {
-      setActionError(data.message);
-    } else {
-      setActionError(null);
-    }
-    if (data.saved) {
-      setSaved(true);
-      setNeedsConfirm(false);
-      setImpact(data.impact ?? null);
-      if (typeof window !== "undefined") {
-        const shopifyGlobal = (window as unknown as { shopify?: { toast?: { show?: (msg: string) => void } } }).shopify;
-        shopifyGlobal?.toast?.show?.("CartGuard rules saved. Active at checkout!");
-      }
-    } else if (data.needsConfirm) {
-      setSaved(false);
-      setNeedsConfirm(true);
-      setImpact(data.impact ?? null);
-    } else if (data.impact) {
-      setSaved(false);
-      setNeedsConfirm(false);
-      setImpact(data.impact);
-    }
-  }, [fetcher.data]);
-
+  const patchVisual = (patch: Partial<VisualState>) => setVisual((current) => ({ ...current, ...patch }));
   const setToggle = (flag: keyof CartGuardSettings) => (value: boolean) =>
     setToggles((current) => ({ ...current, [flag]: value }));
 
-  const blockedPercent =
-    impact && impact.scanned > 0 ? Math.round((impact.blocked / impact.scanned) * 100) : 0;
+  const draft = useMemo<DraftConfig>(
+    () => (mode === "visual" ? draftFromVisual(visual, customRules) : jsonDraft),
+    [mode, visual, customRules, jsonDraft],
+  );
+
+  const jsonErrors = useMemo<Partial<Record<keyof DraftConfig, string | null>>>(
+    () =>
+      mode === "json"
+        ? {
+            vip_allowlist: jsonValidationError(jsonDraft.vip_allowlist, "array"),
+            regex_rules: jsonValidationError(jsonDraft.regex_rules, "array"),
+            quantity_limits: jsonValidationError(jsonDraft.quantity_limits, "object"),
+            geo_blocklist: jsonValidationError(jsonDraft.geo_blocklist, "object"),
+          }
+        : {},
+    [mode, jsonDraft],
+  );
+  const hasJsonErrors = Object.values(jsonErrors).some(Boolean);
+  const busy = fetcher.state !== "idle";
+
+  const switchMode = () => {
+    if (mode === "visual") {
+      setJsonDraft(draftFromVisual(visual, customRules));
+      setModeError(null);
+      setMode("json");
+      return;
+    }
+    if (hasJsonErrors) {
+      setModeError("Fix the JSON errors before switching back to the visual editor.");
+      return;
+    }
+    const parsed = parseConfig({ settings: null, ...jsonDraft });
+    const next = visualFromConfig({ ...parsed, settings: toggles });
+    setVisual(next.visual);
+    setCustomRules(next.customRules);
+    setModeError(null);
+    setMode("visual");
+  };
+
+  const submit = useCallback(
+    (intent: "simulate" | "save", confirmed = false) => {
+      const payload: Record<string, string> = { intent, confirmed: String(confirmed), ...draft };
+      for (const flag of FEATURE_FLAGS) payload[flag] = String(toggles[flag]);
+      fetcher.submit(payload, { method: "post" });
+    },
+    [fetcher, draft, toggles],
+  );
+
+  useEffect(() => {
+    const data = fetcher.data as ActionResponse | undefined;
+    if (!data) return;
+    setResult(data);
+    if (data.saved) {
+      shopify.toast.show(
+        data.validationWarning ? "Rules saved. Checkout activation needs attention." : "CartGuard rules saved and active at checkout.",
+      );
+    }
+  }, [fetcher.data, shopify]);
+
+  const impact = result?.impact;
+  const blockedPercent = impact && impact.scanned > 0 ? Math.round((impact.blocked / impact.scanned) * 100) : 0;
+
+  const impactSummary = impact ? (
+    <BlockStack gap="200">
+      <Text as="p" fontWeight="semibold">
+        {impact.scanned === 0
+          ? "No recent orders were found to check."
+          : `These rules would have blocked ${impact.blocked} of your last ${impact.scanned} orders (${blockedPercent}%).`}
+      </Text>
+      {impact.samples.length > 0 && (
+        <List>
+          {impact.samples.map((sample, index) => (
+            <List.Item key={`${index}-${sample}`}>{sample}</List.Item>
+          ))}
+        </List>
+      )}
+      <Text as="p" tone="subdued">
+        Based on the first 40 products of each order.
+      </Text>
+    </BlockStack>
+  ) : null;
+
+  const jsonField = (key: keyof DraftConfig, label: string, lines: number) => (
+    <TextField
+      label={label}
+      value={jsonDraft[key]}
+      onChange={(value) => setJsonDraft((current) => ({ ...current, [key]: value }))}
+      multiline={lines}
+      monospaced
+      autoComplete="off"
+      error={jsonErrors[key] ?? result?.fieldErrors?.[key] ?? undefined}
+    />
+  );
 
   return (
-    <>
-      <Page
-        title="CartGuard Protection Control"
-        subtitle="Automatic fraud and checkout restrictions powered by native Shopify Functions."
-        secondaryActions={[
-          {
-            content: useDeveloperMode ? "Switch to Visual Mode" : "Developer Mode (JSON)",
-            onAction: () => setUseDeveloperMode((v) => !v),
-          },
-        ]}
-      >
-        <Layout>
-          {saved && (
-            <Layout.Section>
-              <Banner
-                title="Rules successfully saved & live"
-                tone="success"
-                onDismiss={() => setSaved(false)}
-              >
-                <Text as="p">
-                  Your CartGuard rules have been updated and are now evaluated directly during checkout.
-                </Text>
-              </Banner>
-            </Layout.Section>
-          )}
-
-          {needsConfirm && impact && (
-            <Layout.Section>
-              <Banner
-                title="Review impact before finalizing"
-                tone="warning"
-                action={{ content: "Save anyway", onAction: () => submit("save", true) }}
-                secondaryAction={{ content: "Cancel", onAction: () => setNeedsConfirm(false) }}
-                onDismiss={() => setNeedsConfirm(false)}
-              >
-                <BlockStack gap="200">
-                  <Text as="p" fontWeight="semibold">
-                    These rules would have blocked {impact.blocked} of your last{" "}
-                    {impact.scanned} orders ({blockedPercent}%).
-                  </Text>
-                  {impact.samples.length > 0 && (
-                    <List>
-                      {impact.samples.map((sample) => (
-                        <List.Item key={sample}>{sample}</List.Item>
-                      ))}
-                    </List>
-                  )}
-                  <Text as="p" tone="subdued">
-                    Confirm if you would like to proceed with activating these rules.
-                  </Text>
-                </BlockStack>
-              </Banner>
-            </Layout.Section>
-          )}
-
-          {!saved && !needsConfirm && impact && (
-            <Layout.Section>
-              <Banner
-                title="Impact check result"
-                tone={impact.blocked > 0 ? "warning" : "success"}
-                onDismiss={() => setImpact(null)}
-              >
-                <BlockStack gap="200">
-                  <Text as="p" fontWeight="semibold">
-                    {impact.blocked} of the last {impact.scanned} past store orders would have been
-                    blocked ({blockedPercent}%).
-                  </Text>
-                  {impact.samples.length > 0 && (
-                    <List>
-                      {impact.samples.map((sample) => (
-                        <List.Item key={sample}>{sample}</List.Item>
-                      ))}
-                    </List>
-                  )}
-                </BlockStack>
-              </Banner>
-            </Layout.Section>
-          )}
-
-          {actionError && (
-            <Layout.Section>
-              <Banner title="Action failed" tone="critical" onDismiss={() => setActionError(null)}>
-                <Text as="p">{actionError}</Text>
-              </Banner>
-            </Layout.Section>
-          )}
-
-          {/* ── Feature 5: VIP Whitelist ──────────────────────────────────── */}
+    <Page
+      title="CartGuard checkout rules"
+      subtitle="Block risky or undeliverable orders at checkout with Shopify Functions."
+      secondaryActions={[
+        { content: mode === "json" ? "Switch to visual editor" : "Edit as JSON", onAction: switchMode },
+      ]}
+    >
+      <Layout>
+        {validation.state !== "active" && !result?.saved && (
           <Layout.Section>
-            <Card>
-              <BlockStack gap="300">
-                <InlineStack align="space-between">
-                  <Text as="h2" variant="headingMd">
-                    VIP Customer Allowlist
-                  </Text>
-                  {toggles.enable_vip && <Badge tone="success">Active</Badge>}
-                </InlineStack>
-                <Checkbox
-                  label="Enable VIP Customer Bypass"
-                  helpText="VIP customers bypass all checkout restrictions, geographic blocks, and quantity limits."
-                  checked={toggles.enable_vip}
-                  onChange={setToggle("enable_vip")}
-                />
+            <ValidationStatusBanner status={validation} />
+          </Layout.Section>
+        )}
 
-                {toggles.enable_vip && !useDeveloperMode && (
-                  <BlockStack gap="200">
-                    <Banner tone="info">
-                      <strong>VIP White-Glove Bypass:</strong> Any buyer whose email address or delivery street address is listed here will completely and unconditionally bypass <em>all</em> restrictions, address blocklists, geographic/country blocks, quantity caps, and mismatch warnings.
-                    </Banner>
-                    <TextField
-                      label="VIP Customer Emails or Street Addresses"
-                      helpText="Enter customer email addresses or street addresses (one per line or separated by commas). VIPs bypass everything without exception."
-                      placeholder="vip@customer.com&#10;wholesale@partner.store&#10;123 Executive Blvd"
-                      value={vipInput}
-                      onChange={handleVipChange}
-                      multiline={3}
-                      autoComplete="off"
-                    />
-                    <InlineStack gap="200" wrap>
-                      {vipInput
-                        .split(/[\n,]+/)
-                        .map((s) => s.trim())
-                        .filter(Boolean)
-                        .map((item) => (
-                          <Tag key={item}>{item}</Tag>
-                        ))}
-                    </InlineStack>
-                  </BlockStack>
-                )}
+        {needsMigration && !result?.saved && (
+          <Layout.Section>
+            <Banner tone="warning" title="Save once to apply these rules at checkout">
+              <Text as="p">
+                These rules were saved by an older version of CartGuard and aren't enforced at checkout yet. Review them and click Save rules.
+              </Text>
+            </Banner>
+          </Layout.Section>
+        )}
 
-                {toggles.enable_vip && useDeveloperMode && (
+        {modeError && (
+          <Layout.Section>
+            <Banner tone="critical" title="Can't switch editors" onDismiss={() => setModeError(null)}>
+              <Text as="p">{modeError}</Text>
+            </Banner>
+          </Layout.Section>
+        )}
+
+        {result?.saved && !result.validationWarning && (
+          <Layout.Section>
+            <Banner tone="success" title="Rules saved and active at checkout" onDismiss={() => setResult(null)}>
+              <Text as="p">CartGuard now checks every cart and checkout with these rules.</Text>
+            </Banner>
+          </Layout.Section>
+        )}
+
+        {result?.saved && result.validationWarning && (
+          <Layout.Section>
+            <Banner tone="warning" title="Rules saved, but CartGuard couldn't be activated at checkout" onDismiss={() => setResult(null)}>
+              <BlockStack gap="200">
+                <Text as="p">{result.validationWarning}</Text>
+                <Text as="p">Fix the problem above and save again. Until then, checkout isn't protected.</Text>
+              </BlockStack>
+            </Banner>
+          </Layout.Section>
+        )}
+
+        {result?.needsConfirm && (
+          <Layout.Section>
+            <Banner
+              tone="warning"
+              title="Review the impact before saving"
+              action={{ content: busy ? "Saving…" : "Save anyway", onAction: () => { if (!busy) submit("save", true); } }}
+              secondaryAction={{ content: "Cancel", onAction: () => setResult(null) }}
+              onDismiss={() => setResult(null)}
+            >
+              {result.impactError ? <Text as="p">{result.impactError}</Text> : impactSummary}
+            </Banner>
+          </Layout.Section>
+        )}
+
+        {result && !result.saved && !result.needsConfirm && result.ok && impact && (
+          <Layout.Section>
+            <Banner tone={impact.blocked > 0 ? "warning" : "success"} title="Impact check" onDismiss={() => setResult(null)}>
+              {impactSummary}
+            </Banner>
+          </Layout.Section>
+        )}
+
+        {result && !result.ok && (
+          <Layout.Section>
+            <Banner tone="critical" title={result.message ?? "Something went wrong"} onDismiss={() => setResult(null)}>
+              {result.fieldErrors && (
+                <List>
+                  {Object.entries(result.fieldErrors).map(([field, message]) => (
+                    <List.Item key={field}>
+                      {FIELD_LABELS[field] ?? field}: {message}
+                    </List.Item>
+                  ))}
+                </List>
+              )}
+            </Banner>
+          </Layout.Section>
+        )}
+
+        {/* VIP allowlist */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between">
+                <Text as="h2" variant="headingMd">VIP customer allowlist</Text>
+                {toggles.enable_vip && <Badge tone="success">Active</Badge>}
+              </InlineStack>
+              <Checkbox
+                label="Let VIP customers skip CartGuard rules"
+                helpText="Signed-in customers whose account email is listed skip every rule except blocked countries."
+                checked={toggles.enable_vip}
+                onChange={setToggle("enable_vip")}
+              />
+              {toggles.enable_vip && mode === "visual" && (
+                <BlockStack gap="200">
                   <TextField
-                    label="vip_allowlist (Raw JSON array)"
-                    value={vipJson}
-                    onChange={setVipJson}
+                    label="VIP emails or street addresses"
+                    helpText="One per line or comma-separated. Emails only count when the customer is signed in to their account. A street address must match delivery address line 1 exactly and only exempts that line from the address rules."
+                    placeholder={"vip@customer.com\n123 Executive Blvd"}
+                    value={visual.vip}
+                    onChange={(value) => patchVisual({ vip: value })}
                     multiline={3}
-                    monospaced
                     autoComplete="off"
-                    error={errors.vip_allowlist ?? undefined}
                   />
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
+                  <InlineStack gap="200" wrap>
+                    {splitList(visual.vip).map((item, index) => (
+                      <Tag key={`${index}-${item}`}>{item}</Tag>
+                    ))}
+                  </InlineStack>
+                </BlockStack>
+              )}
+              {toggles.enable_vip && mode === "json" && jsonField("vip_allowlist", "vip_allowlist (JSON array)", 3)}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
 
-          {/* ── Feature 1: PO Box & Freight Forwarder Blocker ─────────────── */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="300">
-                <InlineStack align="space-between">
-                  <Text as="h2" variant="headingMd">
-                    PO Box &amp; Freight Forwarder Blocker
-                  </Text>
-                  {toggles.enable_po_box && <Badge tone="success">Active</Badge>}
-                </InlineStack>
-                <Checkbox
-                  label="Enable Address Protection"
-                  helpText="Inspects customer delivery address at checkout completion to stop undeliverable or fraud-risk orders."
-                  checked={toggles.enable_po_box}
-                  onChange={setToggle("enable_po_box")}
-                />
-
-                {toggles.enable_po_box && !useDeveloperMode && (
-                  <BlockStack gap="300">
-                    <Checkbox
-                      label="Block PO Boxes and Postal Lockers (e.g., P.O. Box, Apartado Postal)"
-                      checked={blockPoBox}
-                      onChange={(v) => {
-                        setBlockPoBox(v);
-                        syncRegexToJson(v, blockFreight, blockApoFpo, customKeywords);
-                      }}
-                    />
-                    <Checkbox
-                      label="Block Freight Forwarders and Reshippers (e.g., forwarding company, reship)"
-                      checked={blockFreight}
-                      onChange={(v) => {
-                        setBlockFreight(v);
-                        syncRegexToJson(blockPoBox, v, blockApoFpo, customKeywords);
-                      }}
-                    />
-                    <Checkbox
-                      label="Block Military APO / FPO / DPO delivery addresses"
-                      checked={blockApoFpo}
-                      onChange={(v) => {
-                        setBlockApoFpo(v);
-                        syncRegexToJson(blockPoBox, blockFreight, v, customKeywords);
-                      }}
-                    />
-                    <TextField
-                      label="Custom Blocked Keywords or Phrases (optional)"
-                      helpText="Add any custom terms separated by commas (e.g., warehouse 4B, reshipper)"
-                      value={customKeywords}
-                      onChange={(val) => {
-                        setCustomKeywords(val);
-                        syncRegexToJson(blockPoBox, blockFreight, blockApoFpo, val, scopedStreet, scopedCountry);
-                      }}
-                      autoComplete="off"
-                    />
-                    <InlineGrid columns={["twoThirds", "oneThird"]} gap="200">
-                      <TextField
-                        label="Specific Street / Address to Block (optional)"
-                        helpText="e.g. Calle 5, Avenida Central"
-                        placeholder="Calle 5"
-                        value={scopedStreet}
-                        onChange={(val) => {
-                          setScopedStreet(val);
-                          syncRegexToJson(blockPoBox, blockFreight, blockApoFpo, customKeywords, val, scopedCountry);
-                        }}
-                        autoComplete="off"
-                      />
-                      <TextField
-                        label="In Specific Country (optional)"
-                        helpText="Country name or code (e.g. Costa Rica, CR, Kazakhstan, KZ). Leave blank to block globally."
-                        placeholder="Costa Rica or CR"
-                        value={scopedCountry}
-                        onChange={(val) => {
-                          setScopedCountry(val);
-                          syncRegexToJson(blockPoBox, blockFreight, blockApoFpo, customKeywords, scopedStreet, val);
-                        }}
-                        autoComplete="off"
-                      />
-                    </InlineGrid>
-                  </BlockStack>
-                )}
-
-                {toggles.enable_po_box && useDeveloperMode && (
+        {/* Address rules */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between">
+                <Text as="h2" variant="headingMd">PO Box and freight forwarder blocker</Text>
+                {toggles.enable_po_box && <Badge tone="success">Active</Badge>}
+              </InlineStack>
+              <Checkbox
+                label="Check delivery addresses"
+                helpText="Blocks checkout when the delivery address matches one of the rules below."
+                checked={toggles.enable_po_box}
+                onChange={setToggle("enable_po_box")}
+              />
+              {toggles.enable_po_box && mode === "visual" && (
+                <BlockStack gap="300">
+                  <Checkbox label="Block PO Boxes (P.O. Box, Post Office Box, Apartado Postal, Postfach)" checked={visual.poBox} onChange={(value) => patchVisual({ poBox: value })} />
+                  <Checkbox label="Block freight forwarders and reshippers" checked={visual.freight} onChange={(value) => patchVisual({ freight: value })} />
+                  <Checkbox label="Block US military addresses (APO / FPO / DPO)" checked={visual.military} onChange={(value) => patchVisual({ military: value })} />
                   <TextField
-                    label="regex_rules (Raw JSON array)"
-                    value={regexJson}
-                    onChange={setRegexJson}
-                    multiline={6}
-                    monospaced
+                    label="Blocked words or phrases (optional)"
+                    helpText="Comma-separated, for example: warehouse 4B, mail drop"
+                    value={visual.keywords}
+                    onChange={(value) => patchVisual({ keywords: value })}
                     autoComplete="off"
-                    error={errors.regex_rules ?? undefined}
                   />
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-
-          {/* ── Feature 3: Geographic Zone Blocker ────────────────────────── */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="300">
-                <InlineStack align="space-between">
-                  <Text as="h2" variant="headingMd">
-                    Geographic Zone &amp; Regional Blocker
-                  </Text>
-                  {toggles.enable_geo && <Badge tone="success">Active</Badge>}
-                </InlineStack>
-                <Checkbox
-                  label="Enable Geographic Delivery Restrictions"
-                  helpText="Block delivery to specific states, provinces, cantons, cities, or postal codes worldwide (e.g. Costa Rica, Kiribati, USA, Canada)."
-                  checked={toggles.enable_geo}
-                  onChange={setToggle("enable_geo")}
-                />
-
-                {toggles.enable_geo && !useDeveloperMode && (
-                  <BlockStack gap="300">
+                  <InlineGrid columns={["twoThirds", "oneThird"]} gap="200">
                     <TextField
-                      label="Blocked Countries / Sovereign States"
-                      helpText="Comma-separated country names or 2-letter ISO codes (e.g. KZ, CR, Kazakhstan, Costa Rica, Russia). Hard embargo blocks override VIP bypass."
-                      placeholder="KZ, CR, Costa Rica, Kazakhstan"
-                      value={geoCountries}
-                      onChange={(val) => {
-                        setGeoCountries(val);
-                        syncGeoToJson(val, geoZips, geoCities, geoStates);
-                      }}
+                      label="Block a specific street or address (optional)"
+                      placeholder="Calle 5, Avenida Central"
+                      value={visual.street}
+                      onChange={(value) => patchVisual({ street: value })}
                       autoComplete="off"
                     />
                     <TextField
-                      label="Blocked Postal / Zip Codes"
-                      helpText="Comma-separated or one per line (e.g. 10101, 20101, 90210)"
-                      placeholder="10101, 20101, 90210"
-                      value={geoZips}
-                      onChange={(val) => {
-                        setGeoZips(val);
-                        syncGeoToJson(geoCountries, val, geoCities, geoStates);
-                      }}
+                      label="Only in this country (optional)"
+                      helpText="Country name or 2-letter code, e.g. CR. Leave blank to block everywhere."
+                      placeholder="CR"
+                      value={visual.streetCountry}
+                      onChange={(value) => patchVisual({ streetCountry: value })}
                       autoComplete="off"
                     />
-                    <TextField
-                      label="Blocked Cities / Cantons / Atolls"
-                      helpText="Comma-separated (e.g. San José, Alajuela, Tarawa, Kiritimati)"
-                      placeholder="San José, Alajuela, Tarawa"
-                      value={geoCities}
-                      onChange={(val) => {
-                        setGeoCities(val);
-                        syncGeoToJson(geoCountries, geoZips, val, geoStates);
-                      }}
-                      autoComplete="off"
-                    />
-                    <TextField
-                      label="Blocked States / Provinces / Regions"
-                      helpText="Comma-separated (e.g. Guanacaste, Limón, Line Islands, NY, CA)"
-                      placeholder="Guanacaste, Limón, Phoenix Islands, CA, NY"
-                      value={geoStates}
-                      onChange={(val) => {
-                        setGeoStates(val);
-                        syncGeoToJson(geoCountries, geoZips, geoCities, val);
-                      }}
-                      autoComplete="off"
-                    />
-                  </BlockStack>
-                )}
-
-                {toggles.enable_geo && useDeveloperMode && (
-                  <TextField
-                    label="geo_blocklist (Raw JSON)"
-                    value={geoJson}
-                    onChange={setGeoJson}
-                    multiline={5}
-                    monospaced
-                    autoComplete="off"
-                    error={errors.geo_blocklist ?? undefined}
-                  />
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-
-          {/* ── Feature 2: Bulk Quantity Limiter ──────────────────────────── */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="300">
-                <InlineStack align="space-between">
-                  <Text as="h2" variant="headingMd">
-                    Bulk Quantity Limiter
-                  </Text>
-                  {toggles.enable_quantity && <Badge tone="success">Active</Badge>}
-                </InlineStack>
-                <Checkbox
-                  label="Enable Quantity Limits by Product Tag"
-                  helpText="Prevents resellers or bots from ordering excessive units of tagged products."
-                  checked={toggles.enable_quantity}
-                  onChange={setToggle("enable_quantity")}
-                />
-
-                {toggles.enable_quantity && !useDeveloperMode && (
-                  <BlockStack gap="300">
+                  </InlineGrid>
+                  {customRules.length > 0 && (
                     <Text as="p" tone="subdued">
-                      Specify product tags and the maximum units allowed per checkout:
+                      {customRules.length} custom rule{customRules.length === 1 ? "" : "s"} added in JSON mode {customRules.length === 1 ? "is" : "are"} also active.
                     </Text>
-                    {qtyRows.map((row, idx) => (
-                      <InlineGrid columns={["twoThirds", "oneThird"]} gap="200" key={idx}>
+                  )}
+                </BlockStack>
+              )}
+              {toggles.enable_po_box && mode === "json" && jsonField("regex_rules", "regex_rules (JSON array)", 8)}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        {/* Geographic rules */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between">
+                <Text as="h2" variant="headingMd">Geographic blocker</Text>
+                {toggles.enable_geo && <Badge tone="success">Active</Badge>}
+              </InlineStack>
+              <Checkbox
+                label="Block deliveries to specific areas"
+                checked={toggles.enable_geo}
+                onChange={setToggle("enable_geo")}
+              />
+              {toggles.enable_geo && mode === "visual" && (
+                <BlockStack gap="300">
+                  <TextField
+                    label="Blocked countries"
+                    helpText="Comma-separated 2-letter codes or names, e.g. KZ, CR, Kazakhstan. Country blocks apply to VIP customers too."
+                    placeholder="KZ, CR"
+                    value={visual.countries}
+                    onChange={(value) => patchVisual({ countries: value })}
+                    autoComplete="off"
+                  />
+                  <TextField
+                    label="Blocked ZIP / postal codes"
+                    helpText="Comma-separated, e.g. 10101, 90210. Spaces and dashes are ignored and US ZIP+4 codes match their 5-digit ZIP. Add a country prefix to limit an entry to one country, e.g. US:90210."
+                    value={visual.zips}
+                    onChange={(value) => patchVisual({ zips: value })}
+                    autoComplete="off"
+                  />
+                  <TextField
+                    label="Blocked cities"
+                    helpText="Comma-separated, e.g. San José, Tarawa. Accents, capitals and punctuation are ignored. Add a country prefix to limit an entry, e.g. US:Austin."
+                    value={visual.cities}
+                    onChange={(value) => patchVisual({ cities: value })}
+                    autoComplete="off"
+                  />
+                  <TextField
+                    label="Blocked states / provinces"
+                    helpText={'Use Shopify province codes with a country prefix, e.g. US-CA, US-NY, CA-ON. Codes without a prefix (WA) apply in every country that uses them. Full names like "California" will not match.'}
+                    value={visual.states}
+                    onChange={(value) => patchVisual({ states: value })}
+                    autoComplete="off"
+                  />
+                </BlockStack>
+              )}
+              {toggles.enable_geo && mode === "json" && jsonField("geo_blocklist", "geo_blocklist (JSON object)", 6)}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        {/* Quantity limits */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between">
+                <Text as="h2" variant="headingMd">Quantity limits</Text>
+                {toggles.enable_quantity && <Badge tone="success">Active</Badge>}
+              </InlineStack>
+              <Checkbox
+                label="Limit units per order by product tag"
+                helpText="Stops resellers and bots from buying too many units of a product."
+                checked={toggles.enable_quantity}
+                onChange={setToggle("enable_quantity")}
+              />
+              {toggles.enable_quantity && mode === "visual" && (
+                <BlockStack gap="300">
+                  <Text as="p" tone="subdued">
+                    Enter a product tag (or a product ID, or &quot;all&quot; for every product) and the maximum units of each product per order.
+                  </Text>
+                  {visual.qtyRows.length === 0 && <Text as="p">No limits yet.</Text>}
+                  {visual.qtyRows.map((row) => (
+                    <InlineGrid columns={["twoThirds", "oneThird"]} gap="200" key={row.id}>
+                      <TextField
+                        label="Product tag"
+                        labelHidden
+                        placeholder="e.g. limited-edition"
+                        value={row.key}
+                        onChange={(value) =>
+                          setVisual((current) => ({
+                            ...current,
+                            qtyRows: current.qtyRows.map((r) => (r.id === row.id ? { ...r, key: value } : r)),
+                          }))
+                        }
+                        autoComplete="off"
+                      />
+                      <InlineStack gap="200" blockAlign="center" wrap={false}>
                         <TextField
-                          label="Product Tag"
+                          label="Max units"
                           labelHidden
-                          placeholder="e.g. bulk, limited-edition"
-                          value={row.tag}
-                          onChange={(val) => {
-                            const copy = [...qtyRows];
-                            copy[idx].tag = val;
-                            setQtyRows(copy);
-                            syncQtyToJson(copy);
-                          }}
+                          type="number"
+                          min={1}
+                          value={row.max}
+                          onChange={(value) =>
+                            setVisual((current) => ({
+                              ...current,
+                              qtyRows: current.qtyRows.map((r) => (r.id === row.id ? { ...r, max: value } : r)),
+                            }))
+                          }
                           autoComplete="off"
                         />
-                        <InlineStack gap="200" blockAlign="center">
-                          <TextField
-                            label="Max Units"
-                            labelHidden
-                            type="number"
-                            min={1}
-                            placeholder="Max units"
-                            value={String(row.max)}
-                            onChange={(val) => {
-                              const copy = [...qtyRows];
-                              copy[idx].max = parseInt(val, 10) || 1;
-                              setQtyRows(copy);
-                              syncQtyToJson(copy);
-                            }}
-                            autoComplete="off"
-                          />
-                          {qtyRows.length > 1 && (
-                            <Button
-                              tone="critical"
-                              variant="plain"
-                              onClick={() => {
-                                const copy = qtyRows.filter((_, i) => i !== idx);
-                                setQtyRows(copy);
-                                syncQtyToJson(copy);
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          )}
-                        </InlineStack>
-                      </InlineGrid>
-                    ))}
-                    <InlineStack>
-                      <Button
-                        size="slim"
-                        onClick={() => {
-                          const copy = [...qtyRows, { tag: "", max: 5 }];
-                          setQtyRows(copy);
-                        }}
-                      >
-                        + Add Tag Limit
-                      </Button>
-                    </InlineStack>
-                  </BlockStack>
-                )}
+                        <Button
+                          tone="critical"
+                          variant="plain"
+                          onClick={() =>
+                            setVisual((current) => ({ ...current, qtyRows: current.qtyRows.filter((r) => r.id !== row.id) }))
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </InlineStack>
+                    </InlineGrid>
+                  ))}
+                  <InlineStack>
+                    <Button size="slim" onClick={() => setVisual((current) => ({ ...current, qtyRows: [...current.qtyRows, newRow()] }))}>
+                      Add limit
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
+              )}
+              {toggles.enable_quantity && mode === "json" && jsonField("quantity_limits", "quantity_limits (JSON object)", 4)}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
 
-                {toggles.enable_quantity && useDeveloperMode && (
-                  <TextField
-                    label="quantity_limits (Raw JSON)"
-                    value={qtyJson}
-                    onChange={setQtyJson}
-                    multiline={4}
-                    monospaced
-                    autoComplete="off"
-                    error={errors.quantity_limits ?? undefined}
-                  />
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-
-          {/* ── Feature 4: Smart Mismatch Detector ────────────────────────── */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="300">
-                <InlineStack align="space-between">
-                  <Text as="h2" variant="headingMd">
-                    Smart Mismatch Detector
-                  </Text>
-                  {toggles.enable_mismatch && <Badge tone="success">Active</Badge>}
-                </InlineStack>
-                <Checkbox
-                  label="Enable Billing / Shipping Mismatch Check"
-                  helpText="Detects when an order ships to a high-risk location that differs completely from the cardholder billing address."
-                  checked={toggles.enable_mismatch}
-                  onChange={setToggle("enable_mismatch")}
-                />
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-
-          {/* ── Actions ───────────────────────────────────────────────────── */}
-          <Layout.Section>
-            <PageActions
-              primaryAction={{
-                content: "Save rules",
-                onAction: () => submit("save"),
-                disabled: busy || (useDeveloperMode && hasJsonErrors),
-                loading: busy,
-              }}
-              secondaryActions={[
-                {
-                  content: "Check impact on past 100 orders",
-                  onAction: () => submit("simulate"),
-                  disabled: busy || (useDeveloperMode && hasJsonErrors),
-                },
-              ]}
-            />
-          </Layout.Section>
-        </Layout>
-      </Page>
-    </>
+        <Layout.Section>
+          <PageActions
+            primaryAction={{
+              content: "Save rules",
+              onAction: () => submit("save"),
+              disabled: busy || hasJsonErrors,
+              loading: busy,
+            }}
+            secondaryActions={[
+              {
+                content: "Check impact on recent orders",
+                onAction: () => submit("simulate"),
+                disabled: busy || hasJsonErrors,
+              },
+            ]}
+          />
+        </Layout.Section>
+      </Layout>
+    </Page>
   );
 }
-
-
-/*
- * `authenticate` is re-exported by the Shopify Remix template's
- * app/shopify.server.ts (shopifyApp({ ... }).authenticate). Both handlers
- * above resolve the embedded-session admin context via
- * `await authenticate.admin(request)` and use `admin.graphql(...)`.
- */

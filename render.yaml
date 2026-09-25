@@ -1,13 +1,28 @@
 services:
   - type: web
     name: cartguard
-    env: node
+    runtime: node
+    # Free plan: keep an external pinger hitting /api/ping every 5-10 minutes
+    # so the instance doesn't sleep. Sessions live in external Postgres
+    # (DATABASE_URL), so restarts and deploys don't log merchants out.
     plan: free
     region: ohio
-    buildCommand: npm install && npm run build
+    # --include=dev: NODE_ENV=production would otherwise skip the build tools.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
+    healthCheckPath: /api/ping
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
+      - key: NODE_VERSION
+        value: "20"
+      - key: SHOPIFY_APP_URL
+        value: https://cartguard-co1f.onrender.com
+      - key: SCOPES
+        value: read_orders,read_products,write_validations
+      - key: SHOPIFY_API_KEY
+        sync: false
+      - key: SHOPIFY_API_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false

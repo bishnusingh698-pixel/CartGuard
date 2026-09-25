@@ -14,16 +14,17 @@ import {
 import polarisTranslations from "@shopify/polaris/locales/en.json";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 import { login } from "../shopify.server";
+import { loginErrorMessage } from "../lib/login-errors.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const errors = await login(request);
+  const errors = loginErrorMessage(await login(request));
   return json({ errors });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const errors = await login(request);
+  const errors = loginErrorMessage(await login(request));
   return json({ errors });
 };
 
@@ -46,7 +47,7 @@ export default function AuthLogin() {
                 type="text"
                 name="shop"
                 label="Shop domain"
-                helpText="e.g: my-shop-domain.myshopify.com"
+                helpText="For example: my-shop-domain.myshopify.com"
                 value={shop}
                 onChange={setShop}
                 autoComplete="on"

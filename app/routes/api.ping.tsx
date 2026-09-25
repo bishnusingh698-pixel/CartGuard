@@ -1,13 +1,12 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 
 /**
- * Lightweight, zero-overhead health-check / ping endpoint.
- * Bypasses all Shopify authentication and heavy database calls so external
- * uptime monitors (Cron-Job, UptimeRobot, BetterStack) can ping every 5-10 minutes
- * to keep Render's free instance permanently warm and prevent the 30-50s cold start.
+ * Health check / keep-alive endpoint for Render's health check and an external
+ * pinger (UptimeRobot, cron-job.org, BetterStack). No auth, no database, so it
+ * stays fast and cheap. Ping every 5-10 minutes to stop the free instance from
+ * sleeping after 15 minutes of inactivity.
  */
-export const loader = async ({ request }: LoaderFunctionArgs) => {
+export const loader = async () => {
   return json(
     {
       status: "ok",
@@ -16,11 +15,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       service: "cartguard",
     },
     {
-      status: 200,
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Content-Type": "application/json",
       },
-    }
+    },
   );
 };

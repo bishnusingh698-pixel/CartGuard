@@ -12,8 +12,8 @@ import tailwindCss from "./tailwind.css?url";
 export const meta: MetaFunction = () => [
   { title: "CartGuard" },
   { property: "og:title", content: "CartGuard" },
-  { name: "description", content: "Fraud prevention and cart validation rules enforced at checkout with a Remix and Polaris admin dashboard." },
-  { property: "og:description", content: "Fraud prevention and cart validation rules enforced at checkout with a Remix and Polaris admin dashboard." },
+  { name: "description", content: "Fraud prevention and cart validation rules enforced at checkout." },
+  { property: "og:description", content: "Fraud prevention and cart validation rules enforced at checkout." },
 ];
 
 export const links: LinksFunction = () => [
@@ -23,15 +23,12 @@ export const links: LinksFunction = () => [
 
 export default function App() {
   return (
-    <html>
+    <html lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <link rel="preconnect" href="https://cdn.shopify.com/" />
-        <link
-          rel="stylesheet"
-          href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css"
-        />
+        <link rel="stylesheet" href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css" />
         <Meta />
         <Links />
       </head>

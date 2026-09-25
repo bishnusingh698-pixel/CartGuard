@@ -8,12 +8,7 @@ import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
-  const url = new URL(request.url);
-  const isEmbedded = Boolean(url.searchParams.get("embedded") || url.searchParams.get("host"));
-  return json({
-    apiKey: process.env.SHOPIFY_API_KEY || "a94fb70b5b04fc8e18e80b1663eae59a",
-    isEmbedded,
-  });
+  return json({ apiKey: process.env.SHOPIFY_API_KEY ?? "" });
 };
 
 export const headers: HeadersFunction = (headersArgs) => {
@@ -21,15 +16,16 @@ export const headers: HeadersFunction = (headersArgs) => {
 };
 
 export default function App() {
-  const { apiKey, isEmbedded } = useLoaderData<typeof loader>();
+  const { apiKey } = useLoaderData<typeof loader>();
 
+  // CartGuard is always embedded in the Shopify admin. Deciding this from
+  // query params broke App Bridge on client-side navigations.
   return (
-    <AppProvider isEmbeddedApp={isEmbedded} apiKey={apiKey}>
-      {isEmbedded ? (
-        <NavMenu>
-          <Link to="/app" rel="home">CartGuard Settings</Link>
-        </NavMenu>
-      ) : null}
+    <AppProvider isEmbeddedApp apiKey={apiKey}>
+      <NavMenu>
+        <Link to="/app" rel="home">CartGuard</Link>
+        <Link to="/app/settings">Checkout rules</Link>
+      </NavMenu>
       <Outlet />
     </AppProvider>
   );

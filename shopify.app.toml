@@ -1,3 +1,4 @@
+# Single source of truth for CartGuard's app configuration.
 client_id = "a94fb70b5b04fc8e18e80b1663eae59a"
 name = "CartGuard"
 handle = "cartguard"
@@ -5,11 +6,17 @@ application_url = "https://cartguard-co1f.onrender.com"
 embedded = true
 
 [build]
-automatically_update_urls_on_dev = true
+# false: `shopify app dev` must not repoint the live app at a dev tunnel.
+# Use a separate development app (shopify app config link) for local dev.
+automatically_update_urls_on_dev = false
 dev_store_url = "test-shop-qay2qcgj.myshopify.com"
+include_config_on_deploy = true
 
 [access_scopes]
-scopes = "read_products,read_orders"
+# read_orders + read_products: Impact Checker. write_validations: create and
+# enable CartGuard's checkout rule. Shop metafields need no extra scope.
+scopes = "read_orders,read_products,write_validations"
+use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
@@ -19,16 +26,15 @@ redirect_urls = [
 ]
 
 [webhooks]
-api_version = "2024-10"
+api_version = "2026-07"
 
   [[webhooks.subscriptions]]
-  topics = [ "app/uninstalled" ]
+  topics = [ "app/uninstalled", "app/scopes_update" ]
   uri = "/webhooks"
 
-  [webhooks.privacy_compliance]
-  customer_data_request_url = "https://cartguard-co1f.onrender.com/webhooks"
-  customer_deletion_url = "https://cartguard-co1f.onrender.com/webhooks"
-  shop_deletion_url = "https://cartguard-co1f.onrender.com/webhooks"
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+  uri = "/webhooks"
 
 [pos]
 embedded = false

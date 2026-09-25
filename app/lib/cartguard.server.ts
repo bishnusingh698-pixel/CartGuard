@@ -1,71 +1,64 @@
 /**
- * CartGuard — server helpers for the Remix admin app.
+ * CartGuard server helpers for the admin app.
  *
- * Responsibilities:
- *   - Shop metafield contract (namespace "cartguard", single_line_text_field).
- *   - Strict JSON validation for the settings form (save-time quality gate).
- *   - Impact Checker: fetch the last 100 orders via Admin GraphQL and simulate
- *     the Function rules in memory (Feature 6).
- *   - Persistence via `metafieldsSet` on the Shop owner.
- *
- * NOTE: the rule simulation below deliberately mirrors
- * `extensions/cartguard-validator/src/run.ts`. Keep the two in sync when rules
- * change. The simulator is *stronger* than the checkout Function in one aspect:
- * Admin orders expose real billing addresses, so the Smart Mismatch Detector
- * is simulated fully (see run.ts for the checkout-side fallback behaviour).
+ * - Configuration lives in app-owned shop metafields ($app:cartguard, type
+ *   json). Other apps and staff can't edit them. Values saved by older builds
+ *   under the public "cartguard" namespace are read as a fallback and removed
+ *   on the next save.
+ * - Strict validation of drafts (save-time quality gate; checkout stays
+ *   fail-open).
+ * - Impact Checker: simulates the rules on recent orders using the same rule
+ *   engine as the checkout Function (extensions/cartguard-validator/src/rules.ts).
  */
 
-export const CARTGUARD_NAMESPACE = "cartguard";
-export const METAFIELD_TYPE = "single_line_text_field";
+import { type AdminApi, adminGraphql, errorMessage, setMetafields } from "./admin-api.server";
+import { ensureValidationEnabled } from "./validation.server";
+import {
+  type CartAddress,
+  type CartGuardSettings,
+  type CartInput,
+  type CartLineInput,
+  type QuantityLimit,
+  type RawConfig,
+  type RuleConfig,
+  MAX_PATTERN_LENGTH,
+  MAX_REGEX_RULES,
+  collectLimitTags,
+  compileRegex,
+  evaluateCart,
+  isRecord,
+  isRiskyPattern,
+  MIN_VIP_ADDRESS_LENGTH,
+  normalizeText,
+  parseConfig,
+  parseGeoBlocklist,
+  parseQuantityLimits,
+  parseRegexRules,
+  parseVipAllowlist,
+  resolveCountryCode,
+} from "../../extensions/cartguard-validator/src/rules";
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Types
- * ──────────────────────────────────────────────────────────────────────────── */
+export const CARTGUARD_NAMESPACE = "$app:cartguard";
+export const LEGACY_NAMESPACE = "cartguard";
+export const METAFIELD_TYPE = "json";
+export const LEGACY_METAFIELD_TYPE = "single_line_text_field";
+export const FUNCTION_CONFIG_KEY = "function-configuration";
+export const CONFIG_KEYS = ["settings", "regex_rules", "quantity_limits", "geo_blocklist", "vip_allowlist"] as const;
+type ConfigKey = (typeof CONFIG_KEYS)[number];
 
-export const FEATURE_FLAGS = [
-  "enable_vip",
-  "enable_po_box",
-  "enable_quantity",
-  "enable_geo",
-  "enable_mismatch",
-] as const;
+/** Conservative per-value limit for metafields read by Shopify Functions. */
+export const MAX_METAFIELD_BYTES = 10_000;
+const MAX_MESSAGE_LENGTH = 250;
+const MAX_QUANTITY_LIMITS = 50;
+const MAX_LIST_ENTRIES = 500;
+const MAX_ENTRY_LENGTH = 255;
+const GEO_KEYS = ["countries", "zips", "cities", "states"] as const;
 
-export type FeatureFlag = (typeof FEATURE_FLAGS)[number];
-export type CartGuardSettings = Record<FeatureFlag, boolean>;
-
-export type DraftConfig = {
-  settings: CartGuardSettings;
-  regex_rules: string;
-  quantity_limits: string;
-  geo_blocklist: string;
-  vip_allowlist: string;
-};
-
-export type RegexRule = {
-  pattern: string;
-  country?: string;
-  city?: string;
-  message?: string;
-};
-
-export type GeoBlocklist = {
-  zips: string[];
-  cities: string[];
-  states: string[];
-  countries: string[];
-};
-
-export type ParsedRules = {
-  regexRules: RegexRule[];
-  quantityLimits: Record<string, number | { max: number; message?: string }>;
-  geoBlocklist: GeoBlocklist;
-  vipAllowlist: string[];
-};
+export type DraftConfig = Record<Exclude<ConfigKey, "settings">, string>;
 
 export type ImpactResult = {
   scanned: number;
   blocked: number;
-  /** Human-readable examples, capped for UI display. */
   samples: string[];
 };
 
@@ -74,285 +67,334 @@ export type ActionResponse = {
   saved?: boolean;
   needsConfirm?: boolean;
   impact?: ImpactResult;
+  impactError?: string;
+  validationWarning?: string;
   fieldErrors?: Record<string, string>;
   message?: string;
 };
 
-export type AdminApi = {
-  graphql: (
-    query: string,
-    options?: { variables?: Record<string, unknown> },
-  ) => Promise<Response>;
+/* ── Reading ──────────────────────────────────────────────────────────────── */
+
+const SETTINGS_QUERY = `#graphql
+  query CartGuardSettings {
+    shop {
+      id
+      current: metafields(namespace: "$app:cartguard", first: 25) { nodes { key value } }
+      legacy: metafields(namespace: "cartguard", first: 25) { nodes { key value } }
+    }
+  }
+`;
+
+type MetafieldNodes = { nodes?: Array<{ key?: string | null; value?: string | null } | null> | null } | null;
+
+export type StoredConfiguration = {
+  shopId: string;
+  current: RawConfig | null;
+  legacy: RawConfig | null;
 };
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Parsing helpers
- * ──────────────────────────────────────────────────────────────────────────── */
+function nodesToRaw(connection: MetafieldNodes | undefined): RawConfig | null {
+  const raw: RawConfig = {};
+  let found = false;
+  for (const node of connection?.nodes ?? []) {
+    const key = node?.key;
+    if (key && (CONFIG_KEYS as readonly string[]).includes(key) && typeof node?.value === "string") {
+      raw[key as ConfigKey] = node.value;
+      found = true;
+    }
+  }
+  return found ? raw : null;
+}
 
-export function safeJsonParse<T>(raw: string | null | undefined): T | null {
-  if (!raw) return null;
+export async function readConfiguration(admin: AdminApi): Promise<StoredConfiguration> {
+  const { data } = await adminGraphql<{
+    shop?: { id?: string; current?: MetafieldNodes; legacy?: MetafieldNodes } | null;
+  }>(admin, SETTINGS_QUERY);
+  const shopId = data.shop?.id;
+  if (!shopId) throw new Error("Unable to load the shop from Shopify.");
+  return { shopId, current: nodesToRaw(data.shop?.current), legacy: nodesToRaw(data.shop?.legacy) };
+}
+
+export function effectiveRaw(stored: StoredConfiguration): RawConfig {
+  return stored.current ?? stored.legacy ?? {};
+}
+
+/* ── Validation ──────────────────────────────────────────────────────────── */
+
+const INVALID = Symbol("invalid-json");
+
+function strictParse(raw: string, fallback: unknown): unknown {
+  const trimmed = raw.trim();
+  if (!trimmed) return fallback;
   try {
-    return JSON.parse(raw) as T;
+    return JSON.parse(trimmed);
   } catch {
-    return null;
+    return INVALID;
   }
 }
 
-export function parseSettings(raw: string | null | undefined): CartGuardSettings {
-  const parsed = safeJsonParse<Partial<CartGuardSettings>>(raw);
-  const result = {} as CartGuardSettings;
-  for (const flag of FEATURE_FLAGS) {
-    result[flag] = parsed?.[flag] === true;
-  }
-  return result;
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
 }
 
-/** Pretty-print stored JSON for text areas, falling back to an example. */
-export function prettyJson(raw: string | null | undefined, fallback: string): string {
-  const parsed = safeJsonParse<unknown>(raw);
-  if (parsed === null || parsed === undefined) return fallback;
-  try {
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return fallback;
-  }
-}
+export function validateDraftConfig(draft: DraftConfig): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const add = (field: keyof DraftConfig, message: string) => {
+    if (!errors[field]) errors[field] = message;
+  };
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Strict validation (save-time quality gate — runtime stays fail-open)
- * ──────────────────────────────────────────────────────────────────────────── */
-
-const EMPTY_DEFAULTS: Record<keyof Omit<DraftConfig, "settings">, string> = {
-  regex_rules: "[]",
-  quantity_limits: "{}",
-  geo_blocklist: "{}",
-  vip_allowlist: "[]",
-};
-
-export function validateDraftConfig(
-  draft: Omit<DraftConfig, "settings">,
-): Record<string, string> {
-  const fieldErrors: Record<string, string> = {};
-
-  const regexRules = safeJsonParse<unknown[]>(draft.regex_rules.trim() || EMPTY_DEFAULTS.regex_rules);
-  if (!Array.isArray(regexRules)) {
-    fieldErrors.regex_rules = "Expected a JSON array of { pattern, message } objects.";
-  } else {
-    regexRules.forEach((rule, index) => {
-      const entry = rule as { pattern?: unknown; message?: unknown; country?: unknown; city?: unknown };
-      if (typeof entry?.pattern !== "string" || entry.pattern.trim().length === 0) {
-        fieldErrors.regex_rules = `Rule ${index + 1}: "pattern" must be a non-empty string.`;
-      } else {
-        try {
-          new RegExp(entry.pattern, "iu");
-        } catch {
-          try {
-            new RegExp(entry.pattern, "i");
-          } catch (error) {
-            fieldErrors.regex_rules = `Rule ${index + 1}: invalid regex — ${(error as Error).message}`;
-          }
+  // Address rules
+  const regex = strictParse(draft.regex_rules, []);
+  if (regex === INVALID) add("regex_rules", "Address rules must be valid JSON.");
+  else if (!Array.isArray(regex)) add("regex_rules", "Address rules must be a JSON array of { pattern, message } objects.");
+  else {
+    if (regex.length > MAX_REGEX_RULES) add("regex_rules", `Use at most ${MAX_REGEX_RULES} address rules.`);
+    regex.forEach((rule, index) => {
+      const n = index + 1;
+      if (!isRecord(rule)) return add("regex_rules", `Rule ${n} must be an object.`);
+      if (typeof rule.pattern !== "string" || !rule.pattern.trim()) return add("regex_rules", `Rule ${n}: "pattern" must be a non-empty string.`);
+      if (rule.pattern.length > MAX_PATTERN_LENGTH) return add("regex_rules", `Rule ${n}: the pattern is longer than ${MAX_PATTERN_LENGTH} characters.`);
+      if (!compileRegex(rule.pattern)) return add("regex_rules", `Rule ${n}: "${rule.pattern}" is not a valid regular expression.`);
+      if (isRiskyPattern(rule.pattern)) {
+        return add("regex_rules", `Rule ${n}: nested repetition such as (a+)+ or back-references can stall checkout. Simplify the pattern.`);
+      }
+      if (rule.message !== undefined && typeof rule.message !== "string") return add("regex_rules", `Rule ${n}: "message" must be a string.`);
+      if (typeof rule.message === "string" && rule.message.length > MAX_MESSAGE_LENGTH) return add("regex_rules", `Rule ${n}: the message is longer than ${MAX_MESSAGE_LENGTH} characters.`);
+      if (rule.country !== undefined) {
+        if (typeof rule.country !== "string") return add("regex_rules", `Rule ${n}: "country" must be a string.`);
+        if (rule.country.trim() && !resolveCountryCode(rule.country)) {
+          return add("regex_rules", `Rule ${n}: unknown country "${rule.country}". Use a 2-letter ISO code such as CR or KZ.`);
         }
       }
-      if (entry?.message !== undefined && typeof entry.message !== "string") {
-        fieldErrors.regex_rules = `Rule ${index + 1}: "message" must be a string.`;
-      }
-      if (entry?.country !== undefined && typeof entry.country !== "string") {
-        fieldErrors.regex_rules = `Rule ${index + 1}: "country" must be a string (e.g. "CR", "KZ").`;
-      }
-      if (entry?.city !== undefined && typeof entry.city !== "string") {
-        fieldErrors.regex_rules = `Rule ${index + 1}: "city" must be a string.`;
-      }
+      if (rule.city !== undefined && typeof rule.city !== "string") return add("regex_rules", `Rule ${n}: "city" must be a string.`);
+      return undefined;
     });
   }
 
-  const quantityLimits = safeJsonParse<Record<string, unknown>>(
-    draft.quantity_limits.trim() || EMPTY_DEFAULTS.quantity_limits,
-  );
-  if (!quantityLimits || typeof quantityLimits !== "object" || Array.isArray(quantityLimits)) {
-    fieldErrors.quantity_limits = "Expected a JSON object of { tag: max }.";
-  } else {
-    for (const [tag, value] of Object.entries(quantityLimits)) {
-      const max = typeof value === "number" ? value : Number((value as { max?: unknown })?.max);
-      if (!tag.trim()) continue; // gracefully ignore empty tags rather than blocking save
-      if (!Number.isFinite(max) || max <= 0) {
-        fieldErrors.quantity_limits = `Tag "${tag}": limit must be a positive number.`;
+  // Quantity limits
+  const quantity = strictParse(draft.quantity_limits, {});
+  if (quantity === INVALID) add("quantity_limits", "Quantity limits must be valid JSON.");
+  else if (!isRecord(quantity)) add("quantity_limits", 'Quantity limits must be a JSON object such as { "bulk": 10 }.');
+  else {
+    const entries = Object.entries(quantity);
+    if (entries.length > MAX_QUANTITY_LIMITS) add("quantity_limits", `Use at most ${MAX_QUANTITY_LIMITS} quantity limits.`);
+    for (const [key, value] of entries) {
+      if (!key.trim()) {
+        add("quantity_limits", "Every quantity limit needs a product tag, product ID or \"all\".");
+        continue;
+      }
+      const max = typeof value === "number" ? value : isRecord(value) ? Number(value.max) : Number.NaN;
+      if (!Number.isInteger(max) || max < 1 || max > 1_000_000) {
+        add("quantity_limits", `"${key}": the limit must be a whole number of at least 1.`);
+      }
+      if (isRecord(value) && value.message !== undefined && typeof value.message !== "string") {
+        add("quantity_limits", `"${key}": "message" must be a string.`);
       }
     }
   }
 
-  const geo = safeJsonParse<{ zips?: unknown; cities?: unknown; states?: unknown; countries?: unknown }>(
-    draft.geo_blocklist.trim() || EMPTY_DEFAULTS.geo_blocklist,
-  );
-  if (!geo || typeof geo !== "object" || Array.isArray(geo)) {
-    fieldErrors.geo_blocklist = 'Expected a JSON object with "zips", "cities", "states", "countries" arrays.';
-  } else {
-    for (const key of ["zips", "cities", "states", "countries"] as const) {
+  // Geographic blocklist
+  const geo = strictParse(draft.geo_blocklist, {});
+  if (geo === INVALID) add("geo_blocklist", "The geographic blocklist must be valid JSON.");
+  else if (!isRecord(geo)) add("geo_blocklist", 'The geographic blocklist must be a JSON object with "countries", "zips", "cities" and "states" arrays.');
+  else {
+    for (const key of Object.keys(geo)) {
+      if (!(GEO_KEYS as readonly string[]).includes(key)) add("geo_blocklist", `Unknown key "${key}". Use countries, zips, cities or states.`);
+    }
+    for (const key of GEO_KEYS) {
       const list = geo[key];
       if (list === undefined) continue;
       if (!Array.isArray(list) || list.some((entry) => typeof entry !== "string")) {
-        fieldErrors.geo_blocklist = `"${key}" must be an array of strings.`;
+        add("geo_blocklist", `"${key}" must be an array of strings.`);
+        continue;
+      }
+      if (list.length > MAX_LIST_ENTRIES) add("geo_blocklist", `"${key}" can have at most ${MAX_LIST_ENTRIES} entries.`);
+      if (list.some((entry: string) => entry.length > MAX_ENTRY_LENGTH)) add("geo_blocklist", `"${key}" has an entry longer than ${MAX_ENTRY_LENGTH} characters.`);
+    }
+    if (Array.isArray(geo.countries)) {
+      const unresolved = geo.countries.filter(
+        (country: unknown): country is string =>
+          typeof country === "string" && country.trim() !== "" && !resolveCountryCode(country),
+      );
+      if (unresolved.length > 0) {
+        add("geo_blocklist", `Unknown countries: ${unresolved.slice(0, 5).join(", ")}. Use 2-letter ISO codes such as US, CR or KZ.`);
       }
     }
   }
 
-  const vip = safeJsonParse<unknown[]>(draft.vip_allowlist.trim() || EMPTY_DEFAULTS.vip_allowlist);
-  if (!Array.isArray(vip) || vip.some((entry) => typeof entry !== "string")) {
-    fieldErrors.vip_allowlist = "Expected a JSON array of email or address strings.";
+  // VIP allowlist
+  const vip = strictParse(draft.vip_allowlist, []);
+  if (vip === INVALID) add("vip_allowlist", "The VIP allowlist must be valid JSON.");
+  else if (!Array.isArray(vip) || vip.some((entry) => typeof entry !== "string")) {
+    add("vip_allowlist", "The VIP allowlist must be a JSON array of email addresses or street addresses.");
+  } else {
+    if (vip.length > MAX_LIST_ENTRIES) add("vip_allowlist", `The VIP allowlist can have at most ${MAX_LIST_ENTRIES} entries.`);
+    if (vip.some((entry: string) => entry.length > MAX_ENTRY_LENGTH)) add("vip_allowlist", `A VIP entry is longer than ${MAX_ENTRY_LENGTH} characters.`);
+    // Short address entries are ignored at checkout, so surface them instead of failing silently.
+    const tooShort = vip.filter((entry: string) => {
+      const normalized = normalizeText(entry);
+      return normalized !== "" && !normalized.includes("@") && normalized.length < MIN_VIP_ADDRESS_LENGTH;
+    });
+    if (tooShort.length > 0) {
+      add("vip_allowlist", `Street addresses need at least ${MIN_VIP_ADDRESS_LENGTH} characters: ${tooShort.slice(0, 5).join(", ")}.`);
+    }
   }
 
-  return fieldErrors;
+  // Size limits for checkout
+  if (Object.keys(errors).length === 0) {
+    const values = serializeConfig(
+      parseDraftConfig(draft, { enable_vip: false, enable_po_box: false, enable_quantity: false, enable_geo: false }),
+    );
+    for (const key of ["regex_rules", "quantity_limits", "geo_blocklist", "vip_allowlist"] as const) {
+      if (byteLength(values[key]) > MAX_METAFIELD_BYTES) {
+        add(key, `This list is too large for Shopify checkout (over ${MAX_METAFIELD_BYTES / 1000} KB). Remove some entries.`);
+      }
+    }
+  }
+
+  return errors;
 }
 
-/** Tolerant parse (runs after validateDraftConfig has already gated the save). */
-export function parseDraftConfig(
-  draft: Omit<DraftConfig, "settings">,
-): ParsedRules {
-  const regexRules: ParsedRules["regexRules"] = [];
-  const parsedRegex = safeJsonParse<Array<{ pattern?: unknown; message?: unknown }>>(
-    draft.regex_rules.trim() || EMPTY_DEFAULTS.regex_rules,
-  );
-  if (Array.isArray(parsedRegex)) {
-    for (const rule of parsedRegex) {
-      if (typeof rule?.pattern === "string" && rule.pattern.trim()) {
-        const item = rule as { pattern: string; country?: unknown; city?: unknown; message?: unknown };
-        regexRules.push({
-          pattern: item.pattern,
-          ...(typeof item.country === "string" && item.country.trim()
-            ? { country: item.country.trim() }
-            : {}),
-          ...(typeof item.city === "string" && item.city.trim()
-            ? { city: item.city.trim() }
-            : {}),
-          ...(typeof item.message === "string" && item.message.trim()
-            ? { message: item.message.trim() }
-            : {}),
-        });
-      }
-    }
+function uniqueCaseInsensitive(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
   }
+  return out;
+}
 
-  const quantityLimits: ParsedRules["quantityLimits"] = {};
-  const parsedLimits = safeJsonParse<Record<string, unknown>>(
-    draft.quantity_limits.trim() || EMPTY_DEFAULTS.quantity_limits,
-  );
-  if (parsedLimits && typeof parsedLimits === "object" && !Array.isArray(parsedLimits)) {
-    for (const [tag, value] of Object.entries(parsedLimits)) {
-      if (!tag.trim()) continue;
-      const max = typeof value === "number" ? value : Number((value as { max?: unknown })?.max);
-      if (Number.isFinite(max) && max > 0) {
-        quantityLimits[tag] =
-          typeof value === "object" && value && typeof (value as { message?: unknown }).message === "string"
-            ? { max, message: (value as { message: string }).message }
-            : max;
-      }
-    }
-  }
-
-  const geoSource = safeJsonParse<{ zips?: unknown; cities?: unknown; states?: unknown; countries?: unknown }>(
-    draft.geo_blocklist.trim() || EMPTY_DEFAULTS.geo_blocklist,
-  );
-  const toStringArray = (value: unknown): string[] =>
-    Array.isArray(value)
-      ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-      : [];
-  const geoBlocklist = {
-    zips: toStringArray(geoSource?.zips),
-    cities: toStringArray(geoSource?.cities),
-    states: toStringArray(geoSource?.states),
-    countries: toStringArray(geoSource?.countries),
+/** Tolerant parse + normalization. Call after validateDraftConfig passed. */
+export function parseDraftConfig(draft: DraftConfig, settings: CartGuardSettings): RuleConfig {
+  const regexRules = parseRegexRules(draft.regex_rules)
+    .slice(0, MAX_REGEX_RULES)
+    .map((rule) => (rule.country ? { ...rule, country: resolveCountryCode(rule.country) ?? rule.country.toUpperCase() } : rule));
+  const geo = parseGeoBlocklist(draft.geo_blocklist);
+  return {
+    settings: { ...settings },
+    regexRules,
+    quantityLimits: parseQuantityLimits(draft.quantity_limits),
+    geoBlocklist: {
+      countries: uniqueCaseInsensitive(geo.countries.map((c) => resolveCountryCode(c) ?? c.toUpperCase())),
+      zips: uniqueCaseInsensitive(geo.zips),
+      cities: uniqueCaseInsensitive(geo.cities),
+      states: uniqueCaseInsensitive(geo.states),
+    },
+    vipAllowlist: uniqueCaseInsensitive(parseVipAllowlist(draft.vip_allowlist)),
   };
-
-  const vipSource = safeJsonParse<unknown[]>(
-    draft.vip_allowlist.trim() || EMPTY_DEFAULTS.vip_allowlist,
-  );
-  const vipAllowlist = toStringArray(vipSource);
-
-  return { regexRules, quantityLimits, geoBlocklist, vipAllowlist };
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * GraphQL documents
- * ──────────────────────────────────────────────────────────────────────────── */
+export function serializeConfig(config: RuleConfig): Record<ConfigKey, string> {
+  const quantity: Record<string, number | QuantityLimit> = {};
+  for (const [key, limit] of Object.entries(config.quantityLimits)) {
+    quantity[key] = limit.message ? { max: limit.max, message: limit.message } : limit.max;
+  }
+  return {
+    settings: JSON.stringify(config.settings),
+    regex_rules: JSON.stringify(config.regexRules),
+    quantity_limits: JSON.stringify(quantity),
+    geo_blocklist: JSON.stringify(config.geoBlocklist),
+    vip_allowlist: JSON.stringify(config.vipAllowlist),
+  };
+}
 
-export const CARTGUARD_METAFIELDS_QUERY = /* GraphQL */ `
-  query CartGuardSettings {
-    shop {
-      metafields(namespace: "cartguard", first: 10) {
-        nodes {
-          key
-          value
-        }
-      }
+/* ── Writing ──────────────────────────────────────────────────────────────── */
+
+export async function writeShopConfiguration(admin: AdminApi, shopId: string, config: RuleConfig): Promise<void> {
+  const values = serializeConfig(config);
+  await setMetafields(
+    admin,
+    CONFIG_KEYS.map((key) => ({ ownerId: shopId, namespace: CARTGUARD_NAMESPACE, key, type: METAFIELD_TYPE, value: values[key] })),
+  );
+}
+
+/** Input query variables for the Function, stored on the Validation owner. */
+export async function writeFunctionConfiguration(admin: AdminApi, validationId: string, config: RuleConfig): Promise<void> {
+  await setMetafields(admin, [
+    {
+      ownerId: validationId,
+      namespace: CARTGUARD_NAMESPACE,
+      key: FUNCTION_CONFIG_KEY,
+      type: METAFIELD_TYPE,
+      value: JSON.stringify({ limitTags: collectLimitTags(config.quantityLimits) }),
+    },
+  ]);
+}
+
+const METAFIELDS_DELETE_MUTATION = `#graphql
+  mutation CartGuardDeleteLegacy($metafields: [MetafieldIdentifierInput!]!) {
+    metafieldsDelete(metafields: $metafields) {
+      deletedMetafields { key }
+      userErrors { field message }
     }
   }
 `;
 
-export const SHOP_CONTEXT_QUERY = /* GraphQL */ `
-  query CartGuardShopContext {
-    shop {
-      id
-    }
-  }
-`;
-
-export const METAFIELDS_SET_MUTATION = /* GraphQL */ `
-  mutation CartGuardSave($metafields: [MetafieldsSetInput!]!) {
-    metafieldsSet(metafields: $metafields) {
-      userErrors {
-        field
-        message
-      }
-      metafields {
-        id
-        key
-      }
-    }
-  }
-`;
+export async function deleteLegacyMetafields(admin: AdminApi, shopId: string): Promise<void> {
+  const { data } = await adminGraphql<{
+    metafieldsDelete?: { userErrors?: Array<{ message: string }> | null } | null;
+  }>(admin, METAFIELDS_DELETE_MUTATION, {
+    metafields: CONFIG_KEYS.map((key) => ({ ownerId: shopId, namespace: LEGACY_NAMESPACE, key })),
+  });
+  const userErrors = data.metafieldsDelete?.userErrors ?? [];
+  if (userErrors.length > 0) throw new Error(userErrors.map((e) => e.message).join("; "));
+}
 
 /**
- * Last 100 orders for the Impact Checker.
- * NOTE: `Order.email` and `Customer.emailAddress` — if a future API version
- * removes/renames either, delete the affected line; the simulator falls back
- * to the other source automatically.
+ * Saves the rules, then makes sure CartGuard's checkout rule exists, is
+ * enabled and has the tag list it needs. A failure in the second part doesn't
+ * undo the save; it's returned as a warning for the merchant.
  */
-export const LAST_ORDERS_QUERY = /* GraphQL */ `
-  query CartGuardLastOrders($first: Int!) {
-    orders(first: $first, reverse: true, sortKey: CREATED_AT) {
+export async function saveConfiguration(admin: AdminApi, config: RuleConfig): Promise<{ validationWarning?: string }> {
+  const stored = await readConfiguration(admin);
+  await writeShopConfiguration(admin, stored.shopId, config);
+
+  let validationWarning: string | undefined;
+  try {
+    const validationId = await ensureValidationEnabled(admin);
+    await writeFunctionConfiguration(admin, validationId, config);
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    validationWarning = errorMessage(error);
+  }
+
+  if (stored.legacy) {
+    try {
+      await deleteLegacyMetafields(admin, stored.shopId);
+    } catch (error) {
+      if (error instanceof Response) throw error;
+      console.warn("[CartGuard] Could not delete legacy metafields:", errorMessage(error));
+    }
+  }
+
+  return { validationWarning };
+}
+
+/* ── Impact Checker ──────────────────────────────────────────────────────── */
+
+const IMPACT_PAGE_SIZE = 10;
+const IMPACT_MAX_ORDERS = 100;
+const IMPACT_MIN_BUDGET = 800;
+const IMPACT_SAMPLE_LIMIT = 5;
+
+// 10 orders x (order + address + 40 line items x (item + product)) is about
+// 820 points, under the 1,000-point single-query limit.
+const RECENT_ORDERS_QUERY = `#graphql
+  query CartGuardRecentOrders($first: Int!, $after: String) {
+    orders(first: $first, after: $after, reverse: true, sortKey: CREATED_AT) {
+      pageInfo { hasNextPage endCursor }
       nodes {
         id
         name
-        createdAt
         email
-        customer {
-          emailAddress {
-            emailAddress
-          }
-        }
-        shippingAddress {
-          address1
-          address2
-          city
-          provinceCode
-          zip
-          countryCode
-        }
-        billingAddress {
-          address1
-          city
-          provinceCode
-          zip
-          countryCode
-        }
-        lineItems(first: 50) {
+        shippingAddress { address1 address2 city provinceCode zip countryCode }
+        lineItems(first: 40) {
           nodes {
             quantity
-            variant {
-              product {
-                id
-                tags
-              }
-            }
+            product { id tags }
           }
         }
       }
@@ -360,338 +402,70 @@ export const LAST_ORDERS_QUERY = /* GraphQL */ `
   }
 `;
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Persistence — metafieldsSet on the Shop owner
- * ──────────────────────────────────────────────────────────────────────────── */
-
-export async function writeConfiguration(
-  admin: AdminApi,
-  rules: ParsedRules,
-  settings: CartGuardSettings,
-): Promise<void> {
-  const shopResponse = await admin.graphql(SHOP_CONTEXT_QUERY);
-  const shopBody = (await shopResponse.json()) as {
-    data?: { shop?: { id?: string } };
-  };
-  const shopId = shopBody?.data?.shop?.id;
-  if (!shopId) {
-    throw new Error("Unable to resolve the Shop id for metafield writes.");
-  }
-
-  const values: Record<string, string> = {
-    settings: JSON.stringify(settings),
-    regex_rules: JSON.stringify(rules.regexRules),
-    quantity_limits: JSON.stringify(rules.quantityLimits),
-    geo_blocklist: JSON.stringify(rules.geoBlocklist),
-    vip_allowlist: JSON.stringify(rules.vipAllowlist),
-  };
-
-  const metafields = Object.entries(values).map(([key, value]) => ({
-    ownerId: shopId,
-    namespace: CARTGUARD_NAMESPACE,
-    key,
-    type: METAFIELD_TYPE,
-    value,
-  }));
-
-  const response = await admin.graphql(METAFIELDS_SET_MUTATION, {
-    variables: { metafields },
-  });
-  const body = (await response.json()) as {
-    data?: {
-      metafieldsSet?: {
-        userErrors?: Array<{ field?: string[]; message?: string }>;
-      };
-    };
-  };
-
-  const userErrors = body?.data?.metafieldsSet?.userErrors ?? [];
-  if (userErrors.length > 0) {
-    // If the generic mutation ever rejects the Shop owner type, fall back to
-    // the dedicated `shopMetafieldsSet` mutation with the same inputs.
-    throw new Error(userErrors.map((error) => error.message ?? "Unknown error").join("; "));
-  }
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Feature 6 — Impact Checker
- * ──────────────────────────────────────────────────────────────────────────── */
-
-const IMPACT_SAMPLE_LIMIT = 5;
-const IMPACT_ORDER_COUNT = 100;
-
-export function stripDiacritics(text: string): string {
-  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
-export const COMMON_COUNTRY_CODES: Record<string, string> = {
-  "costa rica": "CR",
-  "costarrica": "CR",
-  "kazakhstan": "KZ",
-  "казахстан": "KZ",
-  "qazaqstan": "KZ",
-  "united states": "US",
-  "usa": "US",
-  "canada": "CA",
-  "united kingdom": "GB",
-  "uk": "GB",
-  "great britain": "GB",
-  "mexico": "MX",
-  "méxico": "MX",
-  "spain": "ES",
-  "españa": "ES",
-  "russia": "RU",
-  "россия": "RU",
-  "germany": "DE",
-  "france": "FR",
-  "china": "CN",
-  "japan": "JP",
-  "australia": "AU",
-  "brazil": "BR",
-  "brasil": "BR",
-  "nigeria": "NG",
-  "india": "IN",
+type OrderNode = {
+  id?: string | null;
+  name?: string | null;
+  email?: string | null;
+  shippingAddress?: CartAddress | null;
+  lineItems?: {
+    nodes?: Array<{ quantity?: number | null; product?: { id?: string | null; tags?: string[] | null } | null } | null> | null;
+  } | null;
 };
 
-export function normalizeCountry(val: unknown): string {
-  const raw = String(val ?? "").trim().toLowerCase();
-  if (!raw) return "";
-  if (raw.length === 2) return raw.toUpperCase();
-  const stripped = stripDiacritics(raw);
-  return COMMON_COUNTRY_CODES[stripped] || COMMON_COUNTRY_CODES[raw] || raw.toUpperCase();
+function orderToCart(order: OrderNode, limitTags: Set<string>): CartInput {
+  const lines: CartLineInput[] = [];
+  (order.lineItems?.nodes ?? []).forEach((item, index) => {
+    const productId = item?.product?.id;
+    if (!productId) return;
+    // Checkout only learns about the tags in collectLimitTags (product.hasTags),
+    // so the simulation must see exactly the same subset.
+    const tags = (item?.product?.tags ?? []).filter(
+      (tag): tag is string => typeof tag === "string" && limitTags.has(tag.trim().toLowerCase()),
+    );
+    lines.push({ index, productId, quantity: Number(item?.quantity ?? 0), tags });
+  });
+  return {
+    email: order.email ?? null,
+    // Approximation: without read_customers the Admin API can't tell whether
+    // the buyer was signed in, so the order email stands in for the account email.
+    customerEmail: order.email ?? null,
+    lines,
+    addresses: order.shippingAddress ? [{ groupIndex: 0, address: order.shippingAddress }] : [],
+  };
 }
 
-/** Mirrors run.ts ordering: VIP bypass → quantity → regex → geo → mismatch. */
-export function simulateOrders(
-  orders: unknown[],
-  rules: ParsedRules,
-  settings?: CartGuardSettings,
-): ImpactResult {
+export function simulateOrders(orders: OrderNode[], config: RuleConfig): ImpactResult {
   let blocked = 0;
   const samples: string[] = [];
-
-  // If settings not provided, default all to true for full simulation
-  const effectiveSettings: CartGuardSettings = settings ?? {
-    enable_vip: true,
-    enable_po_box: true,
-    enable_quantity: true,
-    enable_geo: true,
-    enable_mismatch: true,
-  };
-
-  const normalizeText = (value: unknown): string =>
-    stripDiacritics(String(value ?? "").trim().toLowerCase()).replace(/\s+/g, " ");
-  const normalizeZip = (value: unknown): string =>
-    String(value ?? "").replace(/\s+/g, "").toLowerCase();
-
-  // Pre-compile regex rules safely with unicode support and optional country/city scoping
-  const compiledRegexRules: Array<{
-    pattern: string;
-    regex: RegExp;
-    country?: string;
-    city?: string;
-  }> = [];
-  for (const rule of rules.regexRules) {
-    if (typeof rule?.pattern === "string" && rule.pattern.trim()) {
-      try {
-        let rx: RegExp;
-        try {
-          rx = new RegExp(rule.pattern, "iu");
-        } catch {
-          rx = new RegExp(rule.pattern, "i");
-        }
-        compiledRegexRules.push({
-          pattern: rule.pattern,
-          regex: rx,
-          country: rule.country ? normalizeCountry(rule.country) : undefined,
-          city: rule.city ? normalizeText(rule.city) : undefined,
-        });
-      } catch {
-        // Skip invalid regex (fail-open)
-      }
-    }
-  }
-
-  const blockedZips = new Set(rules.geoBlocklist.zips.map(normalizeZip).filter(Boolean));
-  const blockedCities = new Set(rules.geoBlocklist.cities.map(normalizeText).filter(Boolean));
-  const blockedStates = new Set(rules.geoBlocklist.states.map(normalizeText).filter(Boolean));
-  const blockedCountries = new Set(rules.geoBlocklist.countries.map(normalizeCountry).filter(Boolean));
-
-  // Normalized VIP entries (emails and street addresses)
-  const normalizedVipEmails = new Set<string>();
-  const normalizedVipAddresses = new Set<string>();
-  for (const entry of rules.vipAllowlist) {
-    const norm = normalizeText(entry);
-    if (!norm) continue;
-    if (norm.includes("@")) {
-      normalizedVipEmails.add(norm);
-    } else if (norm.length >= 6) {
-      // Must be a substantial address, not just "Apt 1" or "Suite 2"
-      normalizedVipAddresses.add(norm);
-    }
-  }
-
+  const limitTags = new Set(collectLimitTags(config.quantityLimits).map((tag) => tag.trim().toLowerCase()));
   for (const order of orders) {
-    const typed = order as {
-      id?: string;
-      name?: string;
-      email?: string | null;
-      customer?: { emailAddress?: { emailAddress?: string | null } | null } | null;
-      shippingAddress?: {
-        address1?: string | null;
-        address2?: string | null;
-        city?: string | null;
-        provinceCode?: string | null;
-        zip?: string | null;
-        countryCode?: string | null;
-      } | null;
-      billingAddress?: {
-        address1?: string | null;
-        city?: string | null;
-        provinceCode?: string | null;
-        zip?: string | null;
-        countryCode?: string | null;
-      } | null;
-      lineItems?: { nodes?: Array<{ quantity?: number | null; variant?: { product?: { id?: string | null; tags?: string[] | null } | null } | null }> | null } | null;
-    };
-
-    let label = typed?.name ?? typed?.id ?? "Order";
-    if (label.startsWith("gid://shopify/Order/")) {
-      label = `Order #${label.split("/").pop()}`;
-    }
-
-    const email = normalizeText(typed?.email ?? typed?.customer?.emailAddress?.emailAddress);
-    const shipping = typed?.shippingAddress;
-    const address1 = normalizeText(shipping?.address1);
-    const shippingCountry = normalizeCountry(shipping?.countryCode);
-    const shippingCity = normalizeText(shipping?.city);
-    const shippingZip = normalizeZip(shipping?.zip);
-    const shippingState = normalizeText(shipping?.provinceCode);
-
-    // 1) VIP allowlist check — VIP bypasses EVERYTHING unconditionally!
-    // Any buyer on the VIP allowlist (by email or address) bypasses all restrictions,
-    // geographic blocks, quantity limits, and mismatches.
-    const isVip = Boolean(
-      effectiveSettings.enable_vip &&
-      ((email && normalizedVipEmails.has(email)) ||
-        (address1 && normalizedVipAddresses.has(address1)))
-    );
-
-    if (isVip) {
-      continue;
-    }
-
-    const reasons: string[] = [];
-
-    // 2) Bulk quantity limits.
-    if (effectiveSettings.enable_quantity) {
-      const perProduct = new Map<string, { quantity: number; tags: Set<string> }>();
-      for (const line of typed?.lineItems?.nodes ?? []) {
-        const product = line?.variant?.product;
-        const productId = product?.id;
-        if (!productId) continue;
-        const aggregate = perProduct.get(productId) ?? { quantity: 0, tags: new Set<string>() };
-        aggregate.quantity += Number(line?.quantity ?? 0);
-        for (const tag of product?.tags ?? []) {
-          if (typeof tag === "string" && tag) aggregate.tags.add(tag);
-        }
-        perProduct.set(productId, aggregate);
-      }
-      for (const [prodId, aggregate] of perProduct) {
-        for (const [key, limit] of Object.entries(rules.quantityLimits)) {
-          const max = typeof limit === "number" ? limit : limit.max;
-          const matches = key === "all" || key === "*" || prodId.includes(key) || aggregate.tags.has(key);
-          if (matches && aggregate.quantity > max) {
-            reasons.push(`${aggregate.quantity} units exceed limit of ${max} for "${key}"`);
-          }
-        }
-      }
-    }
-
-    if (shipping) {
-      const rawAddress1 = String(shipping.address1 ?? "").trim();
-      const rawAddress2 = String(shipping.address2 ?? "").trim();
-      const combinedAddress = `${rawAddress1} ${rawAddress2} ${shipping.city ?? ""} ${shipping.provinceCode ?? ""} ${shipping.zip ?? ""} ${shipping.countryCode ?? ""}`.trim();
-
-      // 3) Address / street / PO Box regex matching (with country/city scoping)
-      let matchedRulePattern = "";
-      if (effectiveSettings.enable_po_box) {
-        for (const item of compiledRegexRules) {
-          // If the rule is scoped to a country (e.g. "CR" for Costa Rica), verify country
-          if (item.country && shippingCountry && item.country !== shippingCountry) {
-            continue;
-          }
-          // If the rule is scoped to a city, verify city
-          if (item.city && shippingCity && !shippingCity.includes(item.city)) {
-            continue;
-          }
-
-          // Test against address1, address2, and full combined address
-          if (
-            item.regex.test(rawAddress1) ||
-            item.regex.test(rawAddress2) ||
-            item.regex.test(combinedAddress)
-          ) {
-            matchedRulePattern = item.pattern;
-            reasons.push(`address matched pattern "${item.pattern}"`);
-            break;
-          }
-        }
-      }
-
-      // 4) Geographic blocklists (countries, zips, cities, states).
-      if (effectiveSettings.enable_geo) {
-        if (shippingCountry && blockedCountries.has(shippingCountry)) {
-          reasons.push(`country "${shipping.countryCode}" is blocklisted`);
-        } else if (shippingZip && blockedZips.has(shippingZip)) {
-          reasons.push(`ZIP ${shipping.zip} is blocklisted`);
-        } else if (shippingCity && blockedCities.has(shippingCity)) {
-          reasons.push(`city "${shipping.city}" is blocklisted`);
-        } else if (shippingState && blockedStates.has(shippingState)) {
-          reasons.push(`state/province "${shipping.provinceCode}" is blocklisted`);
-        }
-      }
-
-      // 5) Smart mismatch — full simulation.
-      if (effectiveSettings.enable_mismatch) {
-        const billing = typed?.billingAddress;
-        if (billing) {
-          const billingCountry = normalizeCountry(billing.countryCode);
-          const isHighRisk = Boolean(matchedRulePattern);
-          const isCrossBorderMismatch = Boolean(shippingCountry && billingCountry && shippingCountry !== billingCountry);
-          const isStreetOrZipMismatch =
-            normalizeText(billing.address1) !== address1 ||
-            normalizeZip(billing.zip) !== shippingZip;
-
-          if ((isHighRisk && isStreetOrZipMismatch) || (isCrossBorderMismatch && isStreetOrZipMismatch)) {
-            reasons.push("billing/shipping mismatch with high risk or cross-border address");
-          }
-        }
-      }
-    }
-
-    if (reasons.length > 0) {
-      blocked += 1;
-      if (samples.length < IMPACT_SAMPLE_LIMIT) {
-        samples.push(`${label} — ${reasons.slice(0, 2).join("; ")}`);
-      }
+    const violations = evaluateCart(orderToCart(order, limitTags), config);
+    if (violations.length === 0) continue;
+    blocked += 1;
+    if (samples.length < IMPACT_SAMPLE_LIMIT) {
+      const label = order.name || (order.id ? `Order ${order.id.split("/").pop()}` : "Order");
+      samples.push(`${label}: ${violations.slice(0, 2).map((v) => v.detail).join("; ")}`);
     }
   }
-
   return { scanned: orders.length, blocked, samples };
 }
 
-export async function simulateImpact(
-  admin: AdminApi,
-  rules: ParsedRules,
-  settings?: CartGuardSettings,
-): Promise<ImpactResult> {
-  const response = await admin.graphql(LAST_ORDERS_QUERY, {
-    variables: { first: IMPACT_ORDER_COUNT },
-  });
-  const body = (await response.json()) as {
-    data?: { orders?: { nodes?: unknown[] } };
-  };
-  const orders = body?.data?.orders?.nodes ?? [];
-  return simulateOrders(orders, rules, settings);
+export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promise<ImpactResult> {
+  const orders: OrderNode[] = [];
+  let after: string | null = null;
+  while (orders.length < IMPACT_MAX_ORDERS) {
+    const { data, cost } = await adminGraphql<{
+      orders?: { pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }; nodes?: OrderNode[] } | null;
+    }>(admin, RECENT_ORDERS_QUERY, { first: IMPACT_PAGE_SIZE, after });
+    const page = data.orders;
+    orders.push(...(page?.nodes ?? []));
+    if (!page?.pageInfo?.hasNextPage || !page.pageInfo.endCursor) break;
+    after = page.pageInfo.endCursor;
+    const available = cost?.throttleStatus?.currentlyAvailable;
+    if (typeof available === "number" && available < IMPACT_MIN_BUDGET) break;
+  }
+  return simulateOrders(orders.slice(0, IMPACT_MAX_ORDERS), config);
 }
+
+/** Re-exported for the settings route. */
+export { parseConfig };

@@ -1,15 +1,23 @@
-query RunInput {
+query RunInput($limitTags: [String!] = []) {
   cart {
     buyerIdentity {
       email
+      customer {
+        email
+      }
     }
     lines {
       quantity
       merchandise {
         __typename
         ... on ProductVariant {
+          id
           product {
             id
+            hasTags(tags: $limitTags) {
+              tag
+              hasTag
+            }
           }
         }
       }
@@ -24,17 +32,12 @@ query RunInput {
         countryCode
       }
     }
-    billingAddress {
-      address1
-      zip
-      countryCode
-    }
   }
   shop {
-    regex_rules: metafield(namespace: "cartguard", key: "regex_rules") { value }
-    quantity_limits: metafield(namespace: "cartguard", key: "quantity_limits") { value }
-    geo_blocklist: metafield(namespace: "cartguard", key: "geo_blocklist") { value }
-    vip_allowlist: metafield(namespace: "cartguard", key: "vip_allowlist") { value }
-    settings: metafield(namespace: "cartguard", key: "settings") { value }
+    settings: metafield(namespace: "$app:cartguard", key: "settings") { value }
+    regex_rules: metafield(namespace: "$app:cartguard", key: "regex_rules") { value }
+    quantity_limits: metafield(namespace: "$app:cartguard", key: "quantity_limits") { value }
+    geo_blocklist: metafield(namespace: "$app:cartguard", key: "geo_blocklist") { value }
+    vip_allowlist: metafield(namespace: "$app:cartguard", key: "vip_allowlist") { value }
   }
 }

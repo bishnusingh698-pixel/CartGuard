@@ -1,13 +1,12 @@
 {
-  "schema": "input-schema.graphql",
+  "schema": "schema.graphql",
   "documents": "src/run.graphql",
   "generates": {
     "generated/api.ts": {
       "plugins": ["typescript", "typescript-operations"],
       "config": {
         "enumsAsTypes": true,
-        "skipTypename": false,
-        "nonOptionalTypename": false
+        "skipTypename": false
       }
     }
   }

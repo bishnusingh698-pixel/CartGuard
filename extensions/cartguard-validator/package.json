@@ -3,16 +3,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "shopify app function build",
-    "codegen": "graphql-codegen --config codegen.json",
+    "typegen": "node scripts/typegen.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@shopify/shopify_function": "^2.0.1"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
+    "@graphql-codegen/cli": "^5.0.2",
+    "@graphql-codegen/typescript": "^4.0.9",
+    "@graphql-codegen/typescript-operations": "^4.2.3",
+    "@types/node": "^20.0.0",
+    "graphql": "^16.9.0",
+    "typescript": "^5.4.0"
   },
   "engines": {
     "node": ">=20.0.0"

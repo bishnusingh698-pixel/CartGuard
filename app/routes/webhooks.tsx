@@ -1,46 +1,84 @@
 /**
- * CartGuard — webhook runtime handler.
+ * CartGuard webhook handler (app/uninstalled, app/scopes_update and the three
+ * mandatory compliance topics). Subscriptions are declared in shopify.app.toml.
  *
- * Declarative registration lives in shopify.app.toml
- * ([[webhooks.subscriptions]] → app/uninstalled → /webhooks). This route only
- * AUTHENTICATES and PROCESSES the delivery, then always answers 200 OK so
- * Shopify does not retry a permanently-failed topic.
+ * - Invalid HMAC: authenticate.webhook throws a 401 Response, returned as-is.
+ * - Processing errors return 500 so Shopify retries the delivery.
  */
 import type { ActionFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
+import db from "../db.server";
+import {
+  type CustomerPrivacyPayload,
+  findCustomerInAllowlist,
+  redactCustomerFromAllowlist,
+} from "../lib/privacy.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  try {
-    const { payload, shop, topic } = await authenticate.webhook(request);
+  const { topic, shop, payload, admin, session } = await authenticate.webhook(request);
 
-    if (topic === "APP_UNINSTALLED") {
-      // The Session model row for this shop is garbage-collected by
-      // shopify-app-remix's built-in session expiry handling; log for audit.
-      const payloadData = payload as { shop_id?: string | number };
-      console.log(`CartGuard uninstalled from shop ${shop} (shop_id: ${payloadData?.shop_id ?? "unknown"}). Session cleanup delegated to the library.`);
-    } else if (topic === "CUSTOMERS_DATA_REQUEST") {
-      // Mandatory compliance: CartGuard stores no customer personal data in external databases.
-      // All rules are stored in shop-level metafields.
-      console.log(`[GDPR] customers/data_request received for shop ${shop}. No external customer data held.`);
-    } else if (topic === "CUSTOMERS_REDACT") {
-      // Mandatory compliance: CartGuard stores no customer personal records.
-      console.log(`[GDPR] customers/redact received for shop ${shop}. No external customer data to erase.`);
-    } else if (topic === "SHOP_REDACT") {
-      // Mandatory compliance: 48h shop data deletion.
-      console.log(`[GDPR] shop/redact received for shop ${shop}. Shop-level data scheduled for purge.`);
-    } else {
-      console.log(`Received unexpected webhook topic "${topic}" for shop ${shop}.`);
+  try {
+    switch (topic) {
+      case "APP_UNINSTALLED": {
+        // Removes stored offline tokens. Idempotent, so retries are safe.
+        await db.session.deleteMany({ where: { shop } });
+        console.log(`[webhooks] ${shop} uninstalled CartGuard; sessions deleted.`);
+        break;
+      }
+
+      case "APP_SCOPES_UPDATE": {
+        const current = (payload as { current?: unknown }).current;
+        if (session && Array.isArray(current)) {
+          await db.session.updateMany({
+            where: { id: session.id },
+            data: { scope: current.map(String).join(",") },
+          });
+        }
+        break;
+      }
+
+      case "CUSTOMERS_DATA_REQUEST": {
+        const data = payload as CustomerPrivacyPayload;
+        if (!admin) {
+          console.log(`[GDPR] customers/data_request for ${shop}: app not installed, no data accessible.`);
+          break;
+        }
+        const matches = await findCustomerInAllowlist(admin, data);
+        // Logged without the email itself. The merchant can be sent the
+        // matching VIP entries on request.
+        console.log(
+          `[GDPR] customers/data_request for ${shop}, customer ${data.customer?.id ?? "unknown"}: ${matches} VIP allowlist entr${matches === 1 ? "y" : "ies"} found.`,
+        );
+        break;
+      }
+
+      case "CUSTOMERS_REDACT": {
+        const data = payload as CustomerPrivacyPayload;
+        if (!admin) {
+          console.log(`[GDPR] customers/redact for ${shop}: app not installed, no data accessible.`);
+          break;
+        }
+        const removed = await redactCustomerFromAllowlist(admin, data);
+        console.log(
+          `[GDPR] customers/redact for ${shop}, customer ${data.customer?.id ?? "unknown"}: removed ${removed} VIP allowlist entr${removed === 1 ? "y" : "ies"}.`,
+        );
+        break;
+      }
+
+      case "SHOP_REDACT": {
+        await db.session.deleteMany({ where: { shop } });
+        console.log(`[GDPR] shop/redact for ${shop}: all stored sessions deleted.`);
+        break;
+      }
+
+      default:
+        console.warn(`[webhooks] Unhandled topic "${topic}" for ${shop}.`);
     }
   } catch (error) {
-    // authenticate.webhook throws on invalid HMAC — respond 401 without
-    // leaking details.
-    console.error("Webhook authentication failed:", (error as Error).message);
-    return new Response("Unauthorized", { status: 401 });
+    if (error instanceof Response) throw error;
+    console.error(`[webhooks] Failed to process ${topic} for ${shop}:`, error);
+    return new Response("Webhook processing failed", { status: 500 });
   }
 
-  return json({ ok: true });
+  return new Response(null, { status: 200 });
 };
-
-// Webhooks POST only; GET requests get a plain 200 health response.
-export const loader = async () => json({ ok: true });

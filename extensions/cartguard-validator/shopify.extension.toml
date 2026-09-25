@@ -6,31 +6,17 @@ handle = "cartguard-validator"
 type = "function"
 
   [[extensions.targeting]]
-  target = "purchase.validation.run"
+  target = "cart.validations.generate.run"
   input_query = "src/run.graphql"
   export = "run"
 
   [extensions.build]
   command = ""
-  typegen_command = "echo 'GraphQL types up to date'"
+  typegen_command = "npm run typegen"
   path = "dist/index.wasm"
 
-  [[extensions.metafields]]
-  namespace = "cartguard"
-  key = "regex_rules"
-
-  [[extensions.metafields]]
-  namespace = "cartguard"
-  key = "quantity_limits"
-
-  [[extensions.metafields]]
-  namespace = "cartguard"
-  key = "geo_blocklist"
-
-  [[extensions.metafields]]
-  namespace = "cartguard"
-  key = "vip_allowlist"
-
-  [[extensions.metafields]]
-  namespace = "cartguard"
-  key = "settings"
+  # Variables for src/run.graphql ($limitTags). The app writes this metafield
+  # on CartGuard's Validation when the merchant saves rules.
+  [extensions.input.variables]
+  namespace = "$app:cartguard"
+  key = "function-configuration"
