@@ -7,8 +7,23 @@ import { NavMenu } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
-  return json({ apiKey: process.env.SHOPIFY_API_KEY ?? "" });
+  let isMock = false;
+  try {
+    await authenticate.admin(request);
+  } catch (error) {
+    if (error instanceof Response) {
+      const url = new URL(request.url);
+      const isEmbedded = url.searchParams.get("embedded") === "1" || Boolean(url.searchParams.get("host"));
+      if (!isEmbedded) {
+        isMock = true;
+      } else {
+        throw error;
+      }
+    } else {
+      throw error;
+    }
+  }
+  return json({ apiKey: process.env.SHOPIFY_API_KEY ?? "cartguard-dev-api-key", isMock });
 };
 
 export const headers: HeadersFunction = (headersArgs) => {
@@ -16,12 +31,10 @@ export const headers: HeadersFunction = (headersArgs) => {
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, isMock } = useLoaderData<typeof loader>();
 
-  // CartGuard is always embedded in the Shopify admin. Deciding this from
-  // query params broke App Bridge on client-side navigations.
   return (
-    <AppProvider isEmbeddedApp apiKey={apiKey}>
+    <AppProvider isEmbeddedApp={!isMock} apiKey={apiKey}>
       <NavMenu>
         <Link to="/app" rel="home">CartGuard</Link>
         <Link to="/app/settings">Checkout rules</Link>

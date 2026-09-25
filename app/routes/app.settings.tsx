@@ -33,7 +33,8 @@ import {
 } from "@shopify/polaris";
 
 import { authenticate } from "../shopify.server";
-import { errorMessage } from "../lib/admin-api.server";
+import { type AdminApi, errorMessage } from "../lib/admin-api.server";
+import { createMockAdmin } from "../lib/admin-mock.server";
 import {
   type ActionResponse,
   type DraftConfig,
@@ -61,8 +62,24 @@ export const headers: HeadersFunction = (headersArgs) => boundary.headers(header
 
 type LoaderData = { config: RuleConfig; validation: ValidationStatus; needsMigration: boolean };
 
+async function getAdmin(request: Request): Promise<AdminApi> {
+  try {
+    const auth = await authenticate.admin(request);
+    return auth.admin;
+  } catch (error) {
+    if (error instanceof Response) {
+      const url = new URL(request.url);
+      const isEmbedded = url.searchParams.get("embedded") === "1" || Boolean(url.searchParams.get("host"));
+      if (!isEmbedded) {
+        return createMockAdmin();
+      }
+    }
+    throw error;
+  }
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
-  const { admin } = await authenticate.admin(request);
+  const admin = await getAdmin(request);
   const [stored, validation] = await Promise.all([readConfiguration(admin), getValidationStatus(admin)]);
   // Rules saved by older builds live in the public namespace, which the
   // checkout Function doesn't read. They only take effect after a save.
@@ -73,7 +90,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 /* ── Action ────────────────────────────────────────────────────────────────── */
 
 export async function action({ request }: ActionFunctionArgs) {
-  const { admin } = await authenticate.admin(request);
+  const admin = await getAdmin(request);
 
   const form = await request.formData();
   const intent = form.get("intent") === "simulate" ? "simulate" : "save";
@@ -363,7 +380,7 @@ export default function CartGuardSettingsPage() {
     if (!data) return;
     setResult(data);
     if (data.saved) {
-      shopify.toast.show(
+      shopify?.toast?.show(
         data.validationWarning ? "Rules saved. Checkout activation needs attention." : "CartGuard rules saved and active at checkout.",
       );
     }

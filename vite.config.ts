@@ -7,20 +7,17 @@ installGlobals();
 
 // The Shopify CLI passes the tunnel URL as HOST; the app reads SHOPIFY_APP_URL.
 if (process.env.HOST && (!process.env.SHOPIFY_APP_URL || process.env.SHOPIFY_APP_URL === process.env.HOST)) {
-  process.env.SHOPIFY_APP_URL = process.env.HOST;
-  delete process.env.HOST;
+  if (process.env.HOST.startsWith("http://") || process.env.HOST.startsWith("https://")) {
+    process.env.SHOPIFY_APP_URL = process.env.HOST;
+  }
 }
-
-const host = new URL(process.env.SHOPIFY_APP_URL || "http://localhost").hostname;
-const hmrConfig =
-  host === "localhost"
-    ? { protocol: "ws", host: "localhost", port: 64999, clientPort: 64999 }
-    : { protocol: "wss", host, port: parseInt(process.env.FRONTEND_PORT ?? "", 10) || 8002, clientPort: 443 };
 
 export default defineConfig({
   server: {
-    port: Number(process.env.PORT || 3000),
-    hmr: hmrConfig,
+    host: "0.0.0.0",
+    port: 3000,
+    strictPort: true,
+    hmr: false,
     fs: {
       // The admin imports the shared rule engine from the Function source.
       allow: ["app", "node_modules", "extensions/cartguard-validator/src"],

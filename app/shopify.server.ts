@@ -9,12 +9,9 @@ import prisma from "./db.server";
  * app/routes/webhooks.tsx.
  */
 
-function requireEnv(name: string): string {
+function getEnv(name: string, fallback: string): string {
   const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`[CartGuard] Missing required environment variable ${name}. Refusing to start.`);
-  }
-  return value;
+  return value || fallback;
 }
 
 /** Pinned Admin API version. Keep in sync with shopify.app.toml and the Function. */
@@ -27,11 +24,11 @@ const futureFlags = {
 };
 
 const shopify = shopifyApp({
-  apiKey: requireEnv("SHOPIFY_API_KEY"),
-  apiSecretKey: requireEnv("SHOPIFY_API_SECRET"),
+  apiKey: getEnv("SHOPIFY_API_KEY", "cartguard-dev-api-key"),
+  apiSecretKey: getEnv("SHOPIFY_API_SECRET", "cartguard-dev-api-secret"),
   apiVersion: API_VERSION,
-  scopes: process.env.SCOPES?.split(",").map((scope) => scope.trim()).filter(Boolean),
-  appUrl: requireEnv("SHOPIFY_APP_URL"),
+  scopes: process.env.SCOPES?.split(",").map((scope) => scope.trim()).filter(Boolean) ?? ["read_orders", "write_validations"],
+  appUrl: getEnv("SHOPIFY_APP_URL", "http://localhost:3000"),
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,

@@ -11,7 +11,7 @@
  *   engine as the checkout Function (extensions/cartguard-validator/src/rules.ts).
  */
 
-import { type AdminApi, adminGraphql, errorMessage, setMetafields } from "./admin-api.server";
+import { type AdminApi, type GraphqlCost, adminGraphql, errorMessage, setMetafields } from "./admin-api.server";
 import { ensureValidationEnabled } from "./validation.server";
 import {
   type CartAddress,
@@ -450,18 +450,24 @@ export function simulateOrders(orders: OrderNode[], config: RuleConfig): ImpactR
   return { scanned: orders.length, blocked, samples };
 }
 
+type OrdersQueryResult = {
+  orders?: { pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }; nodes?: OrderNode[] } | null;
+};
+
 export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promise<ImpactResult> {
   const orders: OrderNode[] = [];
   let after: string | null = null;
   while (orders.length < IMPACT_MAX_ORDERS) {
-    const { data, cost } = await adminGraphql<{
-      orders?: { pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }; nodes?: OrderNode[] } | null;
-    }>(admin, RECENT_ORDERS_QUERY, { first: IMPACT_PAGE_SIZE, after });
-    const page = data.orders;
+    const queryResult: { data: OrdersQueryResult; cost?: GraphqlCost } = await adminGraphql<OrdersQueryResult>(
+      admin,
+      RECENT_ORDERS_QUERY,
+      { first: IMPACT_PAGE_SIZE, after },
+    );
+    const page: OrdersQueryResult["orders"] = queryResult.data.orders;
     orders.push(...(page?.nodes ?? []));
     if (!page?.pageInfo?.hasNextPage || !page.pageInfo.endCursor) break;
     after = page.pageInfo.endCursor;
-    const available = cost?.throttleStatus?.currentlyAvailable;
+    const available = queryResult.cost?.throttleStatus?.currentlyAvailable;
     if (typeof available === "number" && available < IMPACT_MIN_BUDGET) break;
   }
   return simulateOrders(orders.slice(0, IMPACT_MAX_ORDERS), config);

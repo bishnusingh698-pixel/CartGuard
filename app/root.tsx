@@ -31,6 +31,26 @@ export default function App() {
         <link rel="stylesheet" href="https://cdn.shopify.com/static/fonts/inter/v4/styles.css" />
         <Meta />
         <Links />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if (typeof window !== "undefined") {
+                if (!window.shopify) {
+                  window.shopify = {
+                    toast: { show: function(msg) { console.log("[CartGuard Toast]", msg); } },
+                    environment: { embedded: false },
+                    config: { apiKey: "cartguard-dev-api-key" }
+                  };
+                }
+                ['ui-nav-menu', 'ui-title-bar', 'ui-save-bar', 'ui-modal'].forEach(function(tag) {
+                  if (window.customElements && !window.customElements.get(tag)) {
+                    try { window.customElements.define(tag, class extends HTMLElement {}); } catch(e) {}
+                  }
+                });
+              }
+            `,
+          }}
+        />
       </head>
       <body>
         <Outlet />
