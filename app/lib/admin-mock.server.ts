@@ -1,5 +1,18 @@
 import type { AdminApi } from "./admin-api.server";
 
+/**
+ * Demo mode (in-memory admin with sample data) is only for local previews
+ * outside the Shopify admin. It is never available in production: there, an
+ * unauthenticated request must go through Shopify auth instead of silently
+ * getting a fake store that reports "Rules saved and active at checkout".
+ */
+export function canUseMockAdmin(request: Request): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  const url = new URL(request.url);
+  const isEmbedded = url.searchParams.get("embedded") === "1" || Boolean(url.searchParams.get("host"));
+  return !isEmbedded;
+}
+
 // In-memory metafields store for preview / demo standalone mode
 const mockMetafieldsStore = new Map<string, string>([
   [

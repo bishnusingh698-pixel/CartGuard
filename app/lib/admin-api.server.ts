@@ -47,6 +47,33 @@ export function errorMessage(error: unknown): string {
   return String(error);
 }
 
+/** An error whose message was written for merchants and can be shown as-is. */
+export class MerchantFacingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MerchantFacingError";
+  }
+}
+
+/**
+ * Merchant-facing wording for a failure. Raw GraphQL / network details belong
+ * in the server log (use errorMessage), never in the admin UI.
+ */
+export function friendlyErrorMessage(error: unknown): string {
+  if (error instanceof MerchantFacingError) return error.message;
+  const detail = errorMessage(error).toLowerCase();
+  if (/throttl|rate limit|\b429\b/.test(detail)) {
+    return "Shopify is handling a lot of requests from your store right now. Wait a minute and try again.";
+  }
+  if (/access denied|access scope|\b401\b|\b403\b/.test(detail)) {
+    return "CartGuard doesn't have the permission it needs. Open CartGuard from your Shopify admin, approve any requested permissions, then try again.";
+  }
+  if (/timeout|timed out|econnreset|fetch failed|socket|\b50[234]\b/.test(detail)) {
+    return "Shopify didn't respond in time. Check your connection and try again in a moment.";
+  }
+  return "Something went wrong while talking to Shopify. Try again in a moment. If it keeps happening, contact support@cartguard.io.";
+}
+
 export async function adminGraphql<T>(
   admin: AdminApi,
   query: string,

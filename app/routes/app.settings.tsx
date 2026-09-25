@@ -10,10 +10,10 @@
 
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useFetcher, useLoaderData } from "@remix-run/react";
+import { isRouteErrorResponse, useFetcher, useLoaderData, useRouteError } from "@remix-run/react";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-remix/server";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Badge,
   Banner,
@@ -33,8 +33,8 @@ import {
 } from "@shopify/polaris";
 
 import { authenticate } from "../shopify.server";
-import { type AdminApi, errorMessage } from "../lib/admin-api.server";
-import { createMockAdmin } from "../lib/admin-mock.server";
+import { type AdminApi, errorMessage, friendlyErrorMessage } from "../lib/admin-api.server";
+import { canUseMockAdmin, createMockAdmin } from "../lib/admin-mock.server";
 import {
   type ActionResponse,
   type DraftConfig,
@@ -67,13 +67,9 @@ async function getAdmin(request: Request): Promise<AdminApi> {
     const auth = await authenticate.admin(request);
     return auth.admin;
   } catch (error) {
-    if (error instanceof Response) {
-      const url = new URL(request.url);
-      const isEmbedded = url.searchParams.get("embedded") === "1" || Boolean(url.searchParams.get("host"));
-      if (!isEmbedded) {
-        return createMockAdmin();
-      }
-    }
+    // Demo data is only for local previews. In production an unauthenticated
+    // request must go through Shopify auth, never get a fake store.
+    if (error instanceof Response && canUseMockAdmin(request)) return createMockAdmin();
     throw error;
   }
 }
@@ -127,10 +123,11 @@ export async function action({ request }: ActionFunctionArgs) {
         impact = await simulateImpact(admin, config);
       } catch (error) {
         if (error instanceof Response) throw error;
+        console.warn("[CartGuard] Impact check failed before save:", errorMessage(error));
         return json<ActionResponse>({
           ok: true,
           needsConfirm: true,
-          impactError: `We couldn't check these rules against recent orders (${errorMessage(error)}).`,
+          impactError: `We couldn't check these rules against your recent orders. ${friendlyErrorMessage(error)} You can still save them.`,
         });
       }
       if (impact.blocked > 0) {
@@ -144,7 +141,10 @@ export async function action({ request }: ActionFunctionArgs) {
     if (error instanceof Response) throw error;
     console.error("[CartGuard] Settings action failed:", error);
     return json<ActionResponse>(
-      { ok: false, message: `CartGuard couldn't complete the request: ${errorMessage(error)}` },
+      {
+        ok: false,
+        message: `${intent === "simulate" ? "The impact check didn't finish." : "Your rules weren't saved."} ${friendlyErrorMessage(error)}`,
+      },
       { status: 500 },
     );
   }
@@ -236,12 +236,16 @@ function rulesFromVisual(visual: VisualState, customRules: RegexRule[]): RegexRu
 }
 
 function draftFromVisual(visual: VisualState, customRules: RegexRule[]): DraftConfig {
-  const quantity: Record<string, number | { max: number; message: string }> = {};
+  const quantity: Record<string, unknown> = {};
   for (const row of visual.qtyRows) {
     const key = row.key.trim();
-    const max = Number.parseInt(row.max, 10);
-    if (!key || !Number.isFinite(max) || max < 1) continue;
-    quantity[key] = row.message ? { max, message: row.message } : max;
+    if (!key) continue; // row without a tag: nothing to limit yet
+    // Invalid limits (0, -3, 1.5, "abc", empty) are sent as typed so server
+    // validation reports them. Dropping them here made limits vanish on save.
+    const raw = row.max.trim();
+    const max = raw === "" ? Number.NaN : Number(raw);
+    const value = Number.isFinite(max) ? max : raw;
+    quantity[key] = row.message ? { max: value, message: row.message } : value;
   }
   return {
     vip_allowlist: JSON.stringify(splitList(visual.vip), null, 2),
@@ -286,15 +290,17 @@ function ValidationStatusBanner({ status }: { status: ValidationStatus }) {
   if (status.state === "active") return null;
   if (status.state === "function_not_deployed") {
     return (
-      <Banner tone="critical" title="The CartGuard checkout function isn't deployed">
-        <Text as="p">Deploy the app with shopify app deploy, then save your rules to switch CartGuard on at checkout.</Text>
+      <Banner tone="critical" title="CartGuard's checkout protection isn't installed yet">
+        <Text as="p">
+          This usually resolves within a few minutes of installing CartGuard. If it doesn't, reinstall the app or contact support@cartguard.io. Until then, no checkout is blocked.
+        </Text>
       </Banner>
     );
   }
   if (status.state === "unknown") {
     return (
       <Banner tone="warning" title="Couldn't check whether CartGuard is active at checkout">
-        <Text as="p">{status.message ?? "Unknown error."}</Text>
+        <Text as="p">{status.message ?? "Try reloading the page in a moment."}</Text>
       </Banner>
     );
   }
@@ -322,6 +328,13 @@ export default function CartGuardSettingsPage() {
   });
   const [modeError, setModeError] = useState<string | null>(null);
   const [result, setResult] = useState<ActionResponse | null>(null);
+  // Unsaved-changes tracking. The baseline is what is stored in Shopify; it
+  // only moves after a successful save.
+  const [baseline, setBaseline] = useState<string>(() => {
+    const initial = visualFromConfig(config);
+    return JSON.stringify({ draft: draftFromVisual(initial.visual, initial.customRules), toggles: config.settings });
+  });
+  const submittedSnapshot = useRef<string | null>(null);
 
   const patchVisual = (patch: Partial<VisualState>) => setVisual((current) => ({ ...current, ...patch }));
   const setToggle = (flag: keyof CartGuardSettings) => (value: boolean) =>
@@ -346,6 +359,19 @@ export default function CartGuardSettingsPage() {
   );
   const hasJsonErrors = Object.values(jsonErrors).some(Boolean);
   const busy = fetcher.state !== "idle";
+  const snapshot = useMemo(() => JSON.stringify({ draft, toggles }), [draft, toggles]);
+  const dirty = snapshot !== baseline;
+
+  // Refresh, tab close or leaving the app would silently drop edits.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   const switchMode = () => {
     if (mode === "visual") {
@@ -370,9 +396,10 @@ export default function CartGuardSettingsPage() {
     (intent: "simulate" | "save", confirmed = false) => {
       const payload: Record<string, string> = { intent, confirmed: String(confirmed), ...draft };
       for (const flag of FEATURE_FLAGS) payload[flag] = String(toggles[flag]);
+      if (intent === "save") submittedSnapshot.current = snapshot;
       fetcher.submit(payload, { method: "post" });
     },
-    [fetcher, draft, toggles],
+    [fetcher, draft, toggles, snapshot],
   );
 
   useEffect(() => {
@@ -380,6 +407,7 @@ export default function CartGuardSettingsPage() {
     if (!data) return;
     setResult(data);
     if (data.saved) {
+      if (submittedSnapshot.current) setBaseline(submittedSnapshot.current);
       shopify?.toast?.show(
         data.validationWarning ? "Rules saved. Checkout activation needs attention." : "CartGuard rules saved and active at checkout.",
       );
@@ -424,6 +452,7 @@ export default function CartGuardSettingsPage() {
   return (
     <Page
       title="CartGuard checkout rules"
+      titleMetadata={dirty ? <Badge tone="attention">Unsaved changes</Badge> : undefined}
       subtitle="Block risky or undeliverable orders at checkout with Shopify Functions."
       secondaryActions={[
         { content: mode === "json" ? "Switch to visual editor" : "Edit as JSON", onAction: switchMode },
@@ -746,6 +775,28 @@ export default function CartGuardSettingsPage() {
           />
         </Layout.Section>
       </Layout>
+    </Page>
+  );
+}
+
+/**
+ * Shown when the loader fails (Shopify down, timeout, API error). Auth
+ * responses still go through the Shopify boundary so re-auth works.
+ */
+export function ErrorBoundary() {
+  const error = useRouteError();
+  if (isRouteErrorResponse(error)) return boundary.error(error);
+  return (
+    <Page title="CartGuard checkout rules">
+      <Banner
+        tone="critical"
+        title="CartGuard couldn't load your rules"
+        action={{ content: "Try again", onAction: () => window.location.reload() }}
+      >
+        <Text as="p">
+          Shopify didn't respond or returned an error. Your checkout rules haven't changed and checkout keeps working. Try again in a moment. If this keeps happening, contact support@cartguard.io.
+        </Text>
+      </Banner>
     </Page>
   );
 }

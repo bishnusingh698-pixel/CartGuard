@@ -298,7 +298,12 @@ export function compileRegex(pattern: string): RegExp | null {
  */
 export function isRiskyPattern(pattern: string): boolean {
   if (/\\[1-9]|\\k</.test(pattern)) return true;
-  return /\((?:[^()\\]|\\.)*(?:[+*]|\{\d+,\d*\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d+,?\d*\})/.test(pattern);
+  // Quantified group that itself contains a quantifier: (a+)+, (\w+\s?)*
+  if (/\((?:[^()\\]|\\.)*(?:[+*]|\{\d+,\d*\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d+,?\d*\})/.test(pattern)) return true;
+  // Quantified group with alternation: (a|a)*, (a|ab)+. Overlapping branches
+  // backtrack exponentially and would block the Node event loop during the
+  // Impact Checker, stalling the server for every shop.
+  return /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)(?:[+*]|\{\d+,\d*\})/.test(pattern);
 }
 
 /* ── Config parsing (tolerant) ───────────────────────────────────────────── */

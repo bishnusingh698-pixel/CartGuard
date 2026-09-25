@@ -8,7 +8,14 @@
  * creates or edits a validation for another app's function.
  */
 
-import { type AdminApi, AdminApiError, adminGraphql, errorMessage } from "./admin-api.server";
+import {
+  type AdminApi,
+  AdminApiError,
+  MerchantFacingError,
+  adminGraphql,
+  errorMessage,
+  friendlyErrorMessage,
+} from "./admin-api.server";
 
 const FUNCTION_HANDLE = "cartguard-validator";
 const FUNCTION_TITLE = "CartGuard Validator";
@@ -90,7 +97,8 @@ export async function getValidationStatus(admin: AdminApi): Promise<ValidationSt
     return { state: validation.enabled ? "active" : "inactive" };
   } catch (error) {
     if (error instanceof Response) throw error;
-    return { state: "unknown", message: errorMessage(error) };
+    console.warn("[CartGuard] Could not read checkout rule status:", errorMessage(error));
+    return { state: "unknown", message: friendlyErrorMessage(error) };
   }
 }
 
@@ -127,7 +135,11 @@ async function createValidation(admin: AdminApi, functionId: string): Promise<st
 export async function ensureValidationEnabled(admin: AdminApi): Promise<string> {
   const { fn, validation } = await loadState(admin);
   if (!fn) {
-    throw new Error("The CartGuard Validator function isn't deployed yet. Run `shopify app deploy`, then save again.");
+    // Developer detail stays in the logs; merchants get actionable copy.
+    console.error("[CartGuard] cartguard-validator Function not found for this shop. Run `shopify app deploy`.");
+    throw new MerchantFacingError(
+      "CartGuard's checkout protection isn't installed on your store yet. Wait a few minutes and save again. If it keeps happening, reinstall CartGuard or contact support@cartguard.io.",
+    );
   }
   if (!validation) return createValidation(admin, fn.id);
   if (!validation.enabled || validation.blockOnFailure === true) {

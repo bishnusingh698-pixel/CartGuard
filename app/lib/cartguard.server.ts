@@ -11,7 +11,14 @@
  *   engine as the checkout Function (extensions/cartguard-validator/src/rules.ts).
  */
 
-import { type AdminApi, type GraphqlCost, adminGraphql, errorMessage, setMetafields } from "./admin-api.server";
+import {
+  type AdminApi,
+  type GraphqlCost,
+  adminGraphql,
+  errorMessage,
+  friendlyErrorMessage,
+  setMetafields,
+} from "./admin-api.server";
 import { ensureValidationEnabled } from "./validation.server";
 import {
   type CartAddress,
@@ -358,7 +365,8 @@ export async function saveConfiguration(admin: AdminApi, config: RuleConfig): Pr
     await writeFunctionConfiguration(admin, validationId, config);
   } catch (error) {
     if (error instanceof Response) throw error;
-    validationWarning = errorMessage(error);
+    console.error("[CartGuard] Rules saved but the checkout rule couldn't be activated:", errorMessage(error));
+    validationWarning = friendlyErrorMessage(error);
   }
 
   if (stored.legacy) {

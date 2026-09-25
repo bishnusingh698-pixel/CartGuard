@@ -9,13 +9,28 @@ import prisma from "./db.server";
  * app/routes/webhooks.tsx.
  */
 
-function getEnv(name: string, fallback: string): string {
+const isProduction = process.env.NODE_ENV === "production";
+
+/**
+ * Reads a required setting. Development falls back to a placeholder so the app
+ * boots locally; production refuses to start instead. SHOPIFY_API_SECRET signs
+ * session tokens and webhooks, so a publicly known default would let anyone
+ * forge requests for any installed shop.
+ */
+function getEnv(name: string, devFallback: string): string {
   const value = process.env[name]?.trim();
-  return value || fallback;
+  if (value) return value;
+  if (isProduction) {
+    throw new Error(`[CartGuard] Missing required environment variable ${name}. Refusing to start in production.`);
+  }
+  return devFallback;
 }
 
 /** Pinned Admin API version. Keep in sync with shopify.app.toml and the Function. */
 export const API_VERSION = "2026-07" as ApiVersion;
+
+/** Keep in sync with [access_scopes] in shopify.app.toml. */
+const DEFAULT_SCOPES = ["read_orders", "read_products", "write_validations"];
 
 // Passed as a variable so flags the installed library version doesn't know
 // about can't break type-checking.
@@ -23,11 +38,13 @@ const futureFlags = {
   unstable_newEmbeddedAuthStrategy: true,
 };
 
+const configuredScopes = process.env.SCOPES?.split(",").map((scope) => scope.trim()).filter(Boolean);
+
 const shopify = shopifyApp({
   apiKey: getEnv("SHOPIFY_API_KEY", "cartguard-dev-api-key"),
   apiSecretKey: getEnv("SHOPIFY_API_SECRET", "cartguard-dev-api-secret"),
   apiVersion: API_VERSION,
-  scopes: process.env.SCOPES?.split(",").map((scope) => scope.trim()).filter(Boolean) ?? ["read_orders", "write_validations"],
+  scopes: configuredScopes && configuredScopes.length > 0 ? configuredScopes : DEFAULT_SCOPES,
   appUrl: getEnv("SHOPIFY_APP_URL", "http://localhost:3000"),
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),

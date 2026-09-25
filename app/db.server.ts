@@ -91,14 +91,17 @@ function createPrismaMock() {
 
 let prisma: any;
 if (process.env.DATABASE_URL) {
-  try {
-    if (process.env.NODE_ENV !== "production" && !global.prismaGlobal) {
-      global.prismaGlobal = new PrismaClient();
-    }
-    prisma = global.prismaGlobal ?? new PrismaClient();
-  } catch {
-    prisma = createPrismaMock();
+  if (process.env.NODE_ENV !== "production") {
+    // Reuse one client across dev hot reloads.
+    global.prismaGlobal ??= new PrismaClient();
+    prisma = global.prismaGlobal;
+  } else {
+    prisma = new PrismaClient();
   }
+} else if (process.env.NODE_ENV === "production") {
+  // The in-memory mock loses every offline token on restart and its lookups
+  // aren't strictly scoped by shop, so it must never back a production app.
+  throw new Error("[CartGuard] DATABASE_URL is required in production. Sessions must be stored in a persistent database.");
 } else {
   prisma = createPrismaMock();
 }
