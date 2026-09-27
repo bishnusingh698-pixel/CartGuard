@@ -37,20 +37,16 @@ import {
   TextField,
 } from "@shopify/polaris";
 
-import { authenticate } from "../shopify.server";
-import { type AdminApi, errorMessage, friendlyErrorMessage } from "../lib/admin-api.server";
-import { canUseMockAdmin, createMockAdmin } from "../lib/admin-mock.server";
+import { errorMessage, friendlyErrorMessage } from "../lib/admin-api.server";
 import {
   type ActionResponse,
   type ImpactResult,
-  effectiveRaw,
-  parseConfig,
-  readConfiguration,
   saveConfiguration,
   simulateImpact,
   validateRuleConfig,
 } from "../lib/cartguard.server";
-import { type ValidationStatus, getValidationStatus } from "../lib/validation.server";
+import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
+import { type ValidationStatus } from "../lib/validation.server";
 import { CountryPicker, ListField, RegionPicker } from "../components/rule-fields";
 import { SectionBadge, sectionStatusText } from "../components/section-status";
 import { describeScopedEntry, getCountryOptions, type Option } from "../lib/regions";
@@ -90,34 +86,15 @@ import {
   DEFAULT_ADDRESS_MESSAGE,
   isRecord,
   type FeatureFlag,
-  type RuleConfig,
 } from "../../extensions/cartguard-validator/src/rules";
 
 export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 
 /* ── Loader ─────────────────────────────────────────────────────────────────────── */
 
-type LoaderData = { config: RuleConfig; validation: ValidationStatus; needsMigration: boolean };
-
-async function getAdmin(request: Request): Promise<AdminApi> {
-  try {
-    const auth = await authenticate.admin(request);
-    return auth.admin;
-  } catch (error) {
-    // Demo data is only for local previews. In production an unauthenticated
-    // request must go through Shopify auth, never get a fake store.
-    if (error instanceof Response && canUseMockAdmin(request)) return createMockAdmin();
-    throw error;
-  }
-}
-
 export async function loader({ request }: LoaderFunctionArgs) {
-  const admin = await getAdmin(request);
-  const [stored, validation] = await Promise.all([readConfiguration(admin), getValidationStatus(admin)]);
-  // Rules saved by older builds live in the public namespace, which the
-  // checkout Function doesn't read. They only take effect after a save.
-  const needsMigration = !stored.current && Boolean(stored.legacy);
-  return json<LoaderData>({ config: parseConfig(effectiveRaw(stored)), validation, needsMigration });
+  const { admin, isDemo } = await getAdmin(request);
+  return json<RulesState>(await loadRulesState(admin, isDemo));
 }
 
 /* ── Action ────────────────────────────────────────────────────────────────────── */
@@ -125,7 +102,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 type Intent = "simulate" | "save";
 
 export async function action({ request }: ActionFunctionArgs) {
-  const admin = await getAdmin(request);
+  const { admin } = await getAdmin(request);
 
   let body: unknown = null;
   try {
@@ -452,7 +429,7 @@ function jumpTo(section: RuleSection) {
 /* ── Page ───────────────────────────────────────────────────────────────────────── */
 
 export default function BlockRulesPage() {
-  const { config, validation, needsMigration } = useLoaderData<typeof loader>() as unknown as LoaderData;
+  const { config, validation, needsMigration } = useLoaderData<typeof loader>() as unknown as RulesState;
   const fetcher = useFetcher<ActionResponse>();
   const shopify = useAppBridge();
 
