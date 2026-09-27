@@ -5,8 +5,8 @@
  *   json). Other apps and staff can't edit them. Values saved by older builds
  *   under the public "cartguard" namespace are read as a fallback and removed
  *   on the next save.
- * - Strict validation of drafts (save-time quality gate; checkout stays
- *   fail-open).
+ * - Strict validation of the structured rules the editor submits (save-time
+ *   quality gate; checkout stays fail-open).
  * - Impact Checker: simulates the rules on recent orders using the same rule
  *   engine as the checkout Function (extensions/cartguard-validator/src/rules.ts).
  */
@@ -19,30 +19,33 @@ import {
   friendlyErrorMessage,
   setMetafields,
 } from "./admin-api.server";
+import { countryName, findCountry, isValidStateEntry } from "./regions";
+import { type RuleSection, limitTargetLabel } from "./rule-summary";
 import { ensureValidationEnabled } from "./validation.server";
 import {
+  ADDRESS_PRESETS,
+  FEATURE_FLAGS,
+  type AddressPreset,
   type CartAddress,
   type CartGuardSettings,
   type CartInput,
   type CartLineInput,
+  type GeoBlocklist,
   type QuantityLimit,
   type RawConfig,
+  type RegexRule,
   type RuleConfig,
+  type ViolationRule,
   MAX_PATTERN_LENGTH,
   MAX_REGEX_RULES,
+  MIN_VIP_ADDRESS_LENGTH,
   collectLimitTags,
   compileRegex,
   evaluateCart,
   isRecord,
   isRiskyPattern,
-  MIN_VIP_ADDRESS_LENGTH,
   normalizeText,
   parseConfig,
-  parseGeoBlocklist,
-  parseQuantityLimits,
-  parseRegexRules,
-  parseVipAllowlist,
-  resolveCountryCode,
 } from "../../extensions/cartguard-validator/src/rules";
 
 export const CARTGUARD_NAMESPACE = "$app:cartguard";
@@ -57,16 +60,38 @@ type ConfigKey = (typeof CONFIG_KEYS)[number];
 export const MAX_METAFIELD_BYTES = 10_000;
 const MAX_MESSAGE_LENGTH = 250;
 const MAX_QUANTITY_LIMITS = 50;
+const MAX_UNITS = 1_000_000;
 const MAX_LIST_ENTRIES = 500;
 const MAX_ENTRY_LENGTH = 255;
 const GEO_KEYS = ["countries", "zips", "cities", "states"] as const;
+const GEO_LABELS: Record<(typeof GEO_KEYS)[number], string> = {
+  countries: "countries",
+  zips: "postal codes",
+  cities: "cities",
+  states: "states and provinces",
+};
 
-export type DraftConfig = Record<Exclude<ConfigKey, "settings">, string>;
+export type SectionErrors = Partial<Record<RuleSection, string>>;
+
+/** One recent order the rules would have stopped. */
+export type ImpactMatch = {
+  /** Numeric order ID, for linking to the order in Shopify admin. */
+  orderId: string | null;
+  name: string;
+  shipTo: string;
+  reasons: string[];
+  sections: RuleSection[];
+};
 
 export type ImpactResult = {
   scanned: number;
   blocked: number;
+  /** Up to 5 one-line examples, for inline summaries. */
   samples: string[];
+  /** Every order that would have been stopped. */
+  matches: ImpactMatch[];
+  /** Orders stopped by each section. An order can count in several. */
+  bySection: Record<RuleSection, number>;
 };
 
 export type ActionResponse = {
@@ -76,11 +101,11 @@ export type ActionResponse = {
   impact?: ImpactResult;
   impactError?: string;
   validationWarning?: string;
-  fieldErrors?: Record<string, string>;
+  sectionErrors?: SectionErrors;
   message?: string;
 };
 
-/* ── Reading ──────────────────────────────────────────────────────────────── */
+/* ── Reading ─────────────────────────────────────────────────────────────────── */
 
 const SETTINGS_QUERY = `#graphql
   query CartGuardSettings {
@@ -126,140 +151,12 @@ export function effectiveRaw(stored: StoredConfiguration): RawConfig {
   return stored.current ?? stored.legacy ?? {};
 }
 
-/* ── Validation ──────────────────────────────────────────────────────────── */
+/* ── Validation ──────────────────────────────────────────────────────────────── */
 
-const INVALID = Symbol("invalid-json");
-
-function strictParse(raw: string, fallback: unknown): unknown {
-  const trimmed = raw.trim();
-  if (!trimmed) return fallback;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return INVALID;
-  }
-}
+const RELOAD_HINT = "Reload the page and try again.";
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).length;
-}
-
-export function validateDraftConfig(draft: DraftConfig): Record<string, string> {
-  const errors: Record<string, string> = {};
-  const add = (field: keyof DraftConfig, message: string) => {
-    if (!errors[field]) errors[field] = message;
-  };
-
-  // Address rules
-  const regex = strictParse(draft.regex_rules, []);
-  if (regex === INVALID) add("regex_rules", "Address rules must be valid JSON.");
-  else if (!Array.isArray(regex)) add("regex_rules", "Address rules must be a JSON array of { pattern, message } objects.");
-  else {
-    if (regex.length > MAX_REGEX_RULES) add("regex_rules", `Use at most ${MAX_REGEX_RULES} address rules.`);
-    regex.forEach((rule, index) => {
-      const n = index + 1;
-      if (!isRecord(rule)) return add("regex_rules", `Rule ${n} must be an object.`);
-      if (typeof rule.pattern !== "string" || !rule.pattern.trim()) return add("regex_rules", `Rule ${n}: "pattern" must be a non-empty string.`);
-      if (rule.pattern.length > MAX_PATTERN_LENGTH) return add("regex_rules", `Rule ${n}: the pattern is longer than ${MAX_PATTERN_LENGTH} characters.`);
-      if (!compileRegex(rule.pattern)) return add("regex_rules", `Rule ${n}: "${rule.pattern}" is not a valid regular expression.`);
-      if (isRiskyPattern(rule.pattern)) {
-        return add("regex_rules", `Rule ${n}: nested repetition such as (a+)+ or back-references can stall checkout. Simplify the pattern.`);
-      }
-      if (rule.message !== undefined && typeof rule.message !== "string") return add("regex_rules", `Rule ${n}: "message" must be a string.`);
-      if (typeof rule.message === "string" && rule.message.length > MAX_MESSAGE_LENGTH) return add("regex_rules", `Rule ${n}: the message is longer than ${MAX_MESSAGE_LENGTH} characters.`);
-      if (rule.country !== undefined) {
-        if (typeof rule.country !== "string") return add("regex_rules", `Rule ${n}: "country" must be a string.`);
-        if (rule.country.trim() && !resolveCountryCode(rule.country)) {
-          return add("regex_rules", `Rule ${n}: unknown country "${rule.country}". Use a 2-letter ISO code such as CR or KZ.`);
-        }
-      }
-      if (rule.city !== undefined && typeof rule.city !== "string") return add("regex_rules", `Rule ${n}: "city" must be a string.`);
-      return undefined;
-    });
-  }
-
-  // Quantity limits
-  const quantity = strictParse(draft.quantity_limits, {});
-  if (quantity === INVALID) add("quantity_limits", "Quantity limits must be valid JSON.");
-  else if (!isRecord(quantity)) add("quantity_limits", 'Quantity limits must be a JSON object such as { "bulk": 10 }.');
-  else {
-    const entries = Object.entries(quantity);
-    if (entries.length > MAX_QUANTITY_LIMITS) add("quantity_limits", `Use at most ${MAX_QUANTITY_LIMITS} quantity limits.`);
-    for (const [key, value] of entries) {
-      if (!key.trim()) {
-        add("quantity_limits", "Every quantity limit needs a product tag, product ID or \"all\".");
-        continue;
-      }
-      const max = typeof value === "number" ? value : isRecord(value) ? Number(value.max) : Number.NaN;
-      if (!Number.isInteger(max) || max < 1 || max > 1_000_000) {
-        add("quantity_limits", `"${key}": the limit must be a whole number of at least 1.`);
-      }
-      if (isRecord(value) && value.message !== undefined && typeof value.message !== "string") {
-        add("quantity_limits", `"${key}": "message" must be a string.`);
-      }
-    }
-  }
-
-  // Geographic blocklist
-  const geo = strictParse(draft.geo_blocklist, {});
-  if (geo === INVALID) add("geo_blocklist", "The geographic blocklist must be valid JSON.");
-  else if (!isRecord(geo)) add("geo_blocklist", 'The geographic blocklist must be a JSON object with "countries", "zips", "cities" and "states" arrays.');
-  else {
-    for (const key of Object.keys(geo)) {
-      if (!(GEO_KEYS as readonly string[]).includes(key)) add("geo_blocklist", `Unknown key "${key}". Use countries, zips, cities or states.`);
-    }
-    for (const key of GEO_KEYS) {
-      const list = geo[key];
-      if (list === undefined) continue;
-      if (!Array.isArray(list) || list.some((entry) => typeof entry !== "string")) {
-        add("geo_blocklist", `"${key}" must be an array of strings.`);
-        continue;
-      }
-      if (list.length > MAX_LIST_ENTRIES) add("geo_blocklist", `"${key}" can have at most ${MAX_LIST_ENTRIES} entries.`);
-      if (list.some((entry: string) => entry.length > MAX_ENTRY_LENGTH)) add("geo_blocklist", `"${key}" has an entry longer than ${MAX_ENTRY_LENGTH} characters.`);
-    }
-    if (Array.isArray(geo.countries)) {
-      const unresolved = geo.countries.filter(
-        (country: unknown): country is string =>
-          typeof country === "string" && country.trim() !== "" && !resolveCountryCode(country),
-      );
-      if (unresolved.length > 0) {
-        add("geo_blocklist", `Unknown countries: ${unresolved.slice(0, 5).join(", ")}. Use 2-letter ISO codes such as US, CR or KZ.`);
-      }
-    }
-  }
-
-  // VIP allowlist
-  const vip = strictParse(draft.vip_allowlist, []);
-  if (vip === INVALID) add("vip_allowlist", "The VIP allowlist must be valid JSON.");
-  else if (!Array.isArray(vip) || vip.some((entry) => typeof entry !== "string")) {
-    add("vip_allowlist", "The VIP allowlist must be a JSON array of email addresses or street addresses.");
-  } else {
-    if (vip.length > MAX_LIST_ENTRIES) add("vip_allowlist", `The VIP allowlist can have at most ${MAX_LIST_ENTRIES} entries.`);
-    if (vip.some((entry: string) => entry.length > MAX_ENTRY_LENGTH)) add("vip_allowlist", `A VIP entry is longer than ${MAX_ENTRY_LENGTH} characters.`);
-    // Short address entries are ignored at checkout, so surface them instead of failing silently.
-    const tooShort = vip.filter((entry: string) => {
-      const normalized = normalizeText(entry);
-      return normalized !== "" && !normalized.includes("@") && normalized.length < MIN_VIP_ADDRESS_LENGTH;
-    });
-    if (tooShort.length > 0) {
-      add("vip_allowlist", `Street addresses need at least ${MIN_VIP_ADDRESS_LENGTH} characters: ${tooShort.slice(0, 5).join(", ")}.`);
-    }
-  }
-
-  // Size limits for checkout
-  if (Object.keys(errors).length === 0) {
-    const values = serializeConfig(
-      parseDraftConfig(draft, { enable_vip: false, enable_po_box: false, enable_quantity: false, enable_geo: false }),
-    );
-    for (const key of ["regex_rules", "quantity_limits", "geo_blocklist", "vip_allowlist"] as const) {
-      if (byteLength(values[key]) > MAX_METAFIELD_BYTES) {
-        add(key, `This list is too large for Shopify checkout (over ${MAX_METAFIELD_BYTES / 1000} KB). Remove some entries.`);
-      }
-    }
-  }
-
-  return errors;
 }
 
 function uniqueCaseInsensitive(values: string[]): string[] {
@@ -274,24 +171,197 @@ function uniqueCaseInsensitive(values: string[]): string[] {
   return out;
 }
 
-/** Tolerant parse + normalization. Call after validateDraftConfig passed. */
-export function parseDraftConfig(draft: DraftConfig, settings: CartGuardSettings): RuleConfig {
-  const regexRules = parseRegexRules(draft.regex_rules)
-    .slice(0, MAX_REGEX_RULES)
-    .map((rule) => (rule.country ? { ...rule, country: resolveCountryCode(rule.country) ?? rule.country.toUpperCase() } : rule));
-  const geo = parseGeoBlocklist(draft.geo_blocklist);
-  return {
-    settings: { ...settings },
-    regexRules,
-    quantityLimits: parseQuantityLimits(draft.quantity_limits),
-    geoBlocklist: {
-      countries: uniqueCaseInsensitive(geo.countries.map((c) => resolveCountryCode(c) ?? c.toUpperCase())),
-      zips: uniqueCaseInsensitive(geo.zips),
-      cities: uniqueCaseInsensitive(geo.cities),
-      states: uniqueCaseInsensitive(geo.states),
-    },
-    vipAllowlist: uniqueCaseInsensitive(parseVipAllowlist(draft.vip_allowlist)),
+/** A list of strings, trimmed and without blanks. Null when the value isn't one. */
+function readStringList(value: unknown): string[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) return null;
+  return (value as string[]).map((entry) => entry.trim()).filter(Boolean);
+}
+
+function addressRuleLabel(rule: Record<string, unknown>): string {
+  if (typeof rule.preset === "string" && Object.hasOwn(ADDRESS_PRESETS, rule.preset)) {
+    return `The ${ADDRESS_PRESETS[rule.preset as AddressPreset].label}`;
+  }
+  if (rule.preset === "keywords") return "The blocked words rule";
+  const text = typeof rule.street === "string" && rule.street ? rule.street : typeof rule.pattern === "string" ? rule.pattern : "";
+  return text ? `The address rule for "${text.slice(0, 40)}"` : "An address rule";
+}
+
+/**
+ * Checks the structured rules submitted by the editor and returns the
+ * normalized config, or merchant-language errors keyed by editor section.
+ */
+export function validateRuleConfig(input: unknown): { config: RuleConfig | null; errors: SectionErrors } {
+  const errors: SectionErrors = {};
+  const add = (section: RuleSection, message: string) => {
+    errors[section] ??= message;
   };
+  const body = isRecord(input) ? input : {};
+
+  const rawSettings = isRecord(body.settings) ? body.settings : {};
+  const settings = {} as CartGuardSettings;
+  for (const flag of FEATURE_FLAGS) settings[flag] = rawSettings[flag] === true;
+
+  // Addresses
+  const regexRules: RegexRule[] = [];
+  const rawRules = body.regexRules ?? [];
+  if (!Array.isArray(rawRules)) {
+    add("address", `Your address rules couldn't be read. ${RELOAD_HINT}`);
+  } else {
+    if (rawRules.length > MAX_REGEX_RULES) add("address", `You can have up to ${MAX_REGEX_RULES} address rules. Remove some and try again.`);
+    for (const raw of rawRules.slice(0, MAX_REGEX_RULES)) {
+      if (!isRecord(raw)) {
+        add("address", `An address rule couldn't be read. ${RELOAD_HINT}`);
+        continue;
+      }
+      const label = addressRuleLabel(raw);
+      const pattern = typeof raw.pattern === "string" ? raw.pattern.trim() : "";
+      if (!pattern) {
+        add("address", `${label} is empty. Enter the text to block or remove it.`);
+        continue;
+      }
+      if (pattern.length > MAX_PATTERN_LENGTH) {
+        add("address", `${label} is longer than ${MAX_PATTERN_LENGTH} characters. Shorten it.`);
+        continue;
+      }
+      if (!compileRegex(pattern)) {
+        add("address", `${label} has a pattern that isn't valid.`);
+        continue;
+      }
+      if (isRiskyPattern(pattern)) {
+        add("address", `${label} could slow down checkout. Simplify the pattern.`);
+        continue;
+      }
+      const rule: RegexRule = { pattern };
+      if (raw.message !== undefined) {
+        if (typeof raw.message !== "string" || raw.message.length > MAX_MESSAGE_LENGTH) {
+          add("address", `${label} has a customer message longer than ${MAX_MESSAGE_LENGTH} characters.`);
+          continue;
+        }
+        if (raw.message.trim()) rule.message = raw.message.trim();
+      }
+      if (raw.country !== undefined && raw.country !== "") {
+        const code = typeof raw.country === "string" ? findCountry(raw.country) : null;
+        if (!code) {
+          add("address", `${label} is limited to a country we don't recognise. Choose one from the list.`);
+          continue;
+        }
+        rule.country = code;
+      }
+      if (typeof raw.city === "string" && raw.city.trim()) {
+        if (raw.city.length > MAX_ENTRY_LENGTH) {
+          add("address", `${label} has a city name that's too long.`);
+          continue;
+        }
+        rule.city = raw.city.trim();
+      }
+      if (typeof raw.preset === "string" && raw.preset.trim()) rule.preset = raw.preset.trim();
+      const keywords = readStringList(raw.keywords);
+      if (keywords && keywords.length > 0) rule.keywords = keywords;
+      if (typeof raw.street === "string" && raw.street.trim()) rule.street = raw.street.trim();
+      regexRules.push(rule);
+    }
+  }
+
+  // Order quantities
+  const quantityLimits: Record<string, QuantityLimit> = {};
+  const rawLimits = body.quantityLimits ?? {};
+  if (!isRecord(rawLimits)) {
+    add("quantity", `Your quantity limits couldn't be read. ${RELOAD_HINT}`);
+  } else {
+    const entries = Object.entries(rawLimits);
+    if (entries.length > MAX_QUANTITY_LIMITS) add("quantity", `You can have up to ${MAX_QUANTITY_LIMITS} quantity limits. Remove some and try again.`);
+    for (const [rawKey, value] of entries.slice(0, MAX_QUANTITY_LIMITS)) {
+      const key = rawKey.trim();
+      if (!key || key.length > MAX_ENTRY_LENGTH) {
+        add("quantity", "Every quantity limit needs a product tag, a product ID or Every product.");
+        continue;
+      }
+      const label = limitTargetLabel(key);
+      const rawMax = typeof value === "number" ? value : isRecord(value) ? value.max : undefined;
+      const max = typeof rawMax === "number" ? rawMax : Number.NaN;
+      if (!Number.isInteger(max) || max < 1 || max > MAX_UNITS) {
+        add("quantity", `${label}: the limit must be a whole number from 1 to 1,000,000.`);
+        continue;
+      }
+      let message: string | undefined;
+      if (isRecord(value) && value.message !== undefined) {
+        if (typeof value.message !== "string" || value.message.length > MAX_MESSAGE_LENGTH) {
+          add("quantity", `${label}: keep the customer message under ${MAX_MESSAGE_LENGTH} characters.`);
+          continue;
+        }
+        if (value.message.trim()) message = value.message.trim();
+      }
+      quantityLimits[key] = message ? { max, message } : { max };
+    }
+  }
+
+  // Countries and regions
+  const geoBlocklist: GeoBlocklist = { countries: [], zips: [], cities: [], states: [] };
+  const rawGeo = body.geoBlocklist ?? {};
+  if (!isRecord(rawGeo)) {
+    add("geo", `Your blocked areas couldn't be read. ${RELOAD_HINT}`);
+  } else {
+    for (const key of GEO_KEYS) {
+      const list = readStringList(rawGeo[key]);
+      if (!list) {
+        add("geo", `Your blocked ${GEO_LABELS[key]} couldn't be read. ${RELOAD_HINT}`);
+        continue;
+      }
+      if (list.length > MAX_LIST_ENTRIES) add("geo", `You can block up to ${MAX_LIST_ENTRIES} ${GEO_LABELS[key]}.`);
+      if (list.some((entry) => entry.length > MAX_ENTRY_LENGTH)) add("geo", `One of your blocked ${GEO_LABELS[key]} is too long.`);
+      geoBlocklist[key] = uniqueCaseInsensitive(list.slice(0, MAX_LIST_ENTRIES));
+    }
+    const resolved = geoBlocklist.countries.map((raw) => ({ raw, code: findCountry(raw) }));
+    const unknown = resolved.filter((entry) => !entry.code).map((entry) => entry.raw);
+    if (unknown.length > 0) {
+      add("geo", `We don't recognise these countries: ${unknown.slice(0, 5).join(", ")}. Choose them from the list instead.`);
+    }
+    geoBlocklist.countries = uniqueCaseInsensitive(resolved.map((entry) => entry.code ?? entry.raw.toUpperCase()));
+    const badStates = geoBlocklist.states.filter((entry) => !isValidStateEntry(entry));
+    if (badStates.length > 0) {
+      add("geo", `These states or provinces aren't valid: ${badStates.slice(0, 5).join(", ")}. Choose them from the list instead.`);
+    }
+  }
+
+  // Trusted customers
+  let vipAllowlist: string[] = [];
+  const rawVip = readStringList(body.vipAllowlist);
+  if (!rawVip) {
+    add("vip", `Your trusted customers couldn't be read. ${RELOAD_HINT}`);
+  } else {
+    if (rawVip.length > MAX_LIST_ENTRIES) add("vip", `You can have up to ${MAX_LIST_ENTRIES} trusted customers.`);
+    if (rawVip.some((entry) => entry.length > MAX_ENTRY_LENGTH)) add("vip", `A trusted customer entry is longer than ${MAX_ENTRY_LENGTH} characters.`);
+    // Short address entries are ignored at checkout, so surface them instead of failing silently.
+    const tooShort = rawVip.filter((entry) => {
+      const normalized = normalizeText(entry);
+      return normalized !== "" && !normalized.includes("@") && normalized.length < MIN_VIP_ADDRESS_LENGTH;
+    });
+    if (tooShort.length > 0) {
+      add("vip", `Street addresses need at least ${MIN_VIP_ADDRESS_LENGTH} characters: ${tooShort.slice(0, 5).join(", ")}.`);
+    }
+    vipAllowlist = uniqueCaseInsensitive(rawVip.slice(0, MAX_LIST_ENTRIES));
+  }
+
+  const config: RuleConfig = { settings, regexRules, quantityLimits, geoBlocklist, vipAllowlist };
+
+  // Size limits for checkout
+  if (Object.keys(errors).length === 0) {
+    const values = serializeConfig(config);
+    const sizeChecks: Array<[ConfigKey, RuleSection]> = [
+      ["regex_rules", "address"],
+      ["quantity_limits", "quantity"],
+      ["geo_blocklist", "geo"],
+      ["vip_allowlist", "vip"],
+    ];
+    for (const [key, section] of sizeChecks) {
+      if (byteLength(values[key]) > MAX_METAFIELD_BYTES) {
+        add(section, `This section is too large for Shopify checkout (over ${MAX_METAFIELD_BYTES / 1000} KB). Remove some entries.`);
+      }
+    }
+  }
+
+  return Object.keys(errors).length > 0 ? { config: null, errors } : { config, errors };
 }
 
 export function serializeConfig(config: RuleConfig): Record<ConfigKey, string> {
@@ -308,7 +378,7 @@ export function serializeConfig(config: RuleConfig): Record<ConfigKey, string> {
   };
 }
 
-/* ── Writing ──────────────────────────────────────────────────────────────── */
+/* ── Writing ────────────────────────────────────────────────────────────────── */
 
 export async function writeShopConfiguration(admin: AdminApi, shopId: string, config: RuleConfig): Promise<void> {
   const values = serializeConfig(config);
@@ -381,7 +451,7 @@ export async function saveConfiguration(admin: AdminApi, config: RuleConfig): Pr
   return { validationWarning };
 }
 
-/* ── Impact Checker ──────────────────────────────────────────────────────── */
+/* ── Impact Checker ────────────────────────────────────────────────────────────── */
 
 const IMPACT_PAGE_SIZE = 10;
 const IMPACT_MAX_ORDERS = 100;
@@ -442,20 +512,49 @@ function orderToCart(order: OrderNode, limitTags: Set<string>): CartInput {
   };
 }
 
+const VIOLATION_SECTION: Record<ViolationRule, RuleSection> = {
+  country: "geo",
+  zip: "geo",
+  city: "geo",
+  state: "geo",
+  address: "address",
+  quantity: "quantity",
+};
+
+const capitalize = (text: string) => (text ? text[0].toUpperCase() + text.slice(1) : text);
+
+function describeShipTo(address: CartAddress | null | undefined): string {
+  if (!address) return "No shipping address";
+  const country = address.countryCode ? countryName(address.countryCode) : null;
+  return [address.city, address.provinceCode, country].filter(Boolean).join(", ") || "No shipping address";
+}
+
 export function simulateOrders(orders: OrderNode[], config: RuleConfig): ImpactResult {
   let blocked = 0;
   const samples: string[] = [];
+  const matches: ImpactMatch[] = [];
+  const bySection: Record<RuleSection, number> = { geo: 0, address: 0, quantity: 0, vip: 0 };
   const limitTags = new Set(collectLimitTags(config.quantityLimits).map((tag) => tag.trim().toLowerCase()));
   for (const order of orders) {
     const violations = evaluateCart(orderToCart(order, limitTags), config);
     if (violations.length === 0) continue;
     blocked += 1;
+    const orderId = order.id?.split("/").pop() ?? null;
+    const label = order.name || (orderId ? `Order ${orderId}` : "Order");
     if (samples.length < IMPACT_SAMPLE_LIMIT) {
-      const label = order.name || (order.id ? `Order ${order.id.split("/").pop()}` : "Order");
       samples.push(`${label}: ${violations.slice(0, 2).map((v) => v.detail).join("; ")}`);
     }
+    const sections = [...new Set(violations.map((violation) => VIOLATION_SECTION[violation.rule]))];
+    for (const section of sections) bySection[section] += 1;
+    matches.push({
+      orderId,
+      name: label,
+      shipTo: describeShipTo(order.shippingAddress),
+      reasons: violations.map((violation) => capitalize(violation.detail)),
+      sections,
+    });
   }
-  return { scanned: orders.length, blocked, samples };
+  return { scanned: orders.length, blocked, samples, matches, bySection };
 }
 
 type OrdersQueryResult = {
@@ -481,5 +580,5 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
   return simulateOrders(orders.slice(0, IMPACT_MAX_ORDERS), config);
 }
 
-/** Re-exported for the settings route. */
+/** Re-exported for the rules route. */
 export { parseConfig };

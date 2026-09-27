@@ -2,9 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ADDRESS_PRESETS, isRiskyPattern } from "../extensions/cartguard-validator/src/rules";
 import { MerchantFacingError, friendlyErrorMessage } from "../app/lib/admin-api.server";
 import { canUseMockAdmin } from "../app/lib/admin-mock.server";
-import { validateDraftConfig } from "../app/lib/cartguard.server";
-
-const emptyDraft = { regex_rules: "", quantity_limits: "", geo_blocklist: "", vip_allowlist: "" };
+import { validateRuleConfig } from "../app/lib/cartguard.server";
 
 describe("demo mode gating (auth bypass regression)", () => {
   const original = process.env.NODE_ENV;
@@ -57,8 +55,9 @@ describe("merchant-facing errors", () => {
 
 describe("quantity limit validation (server side)", () => {
   it("rejects limits that aren't whole numbers of at least 1", () => {
-    for (const bad of ['{"bulk":"abc"}', '{"bulk":""}', '{"bulk":0}', '{"bulk":-3}', '{"bulk":1.5}']) {
-      expect(validateDraftConfig({ ...emptyDraft, quantity_limits: bad }).quantity_limits, bad).toBeTruthy();
+    for (const bad of ["abc", "", 0, -3, 1.5, null]) {
+      expect(validateRuleConfig({ quantityLimits: { bulk: bad } }).errors.quantity, String(bad)).toBeTruthy();
+      expect(validateRuleConfig({ quantityLimits: { bulk: { max: bad } } }).errors.quantity, String(bad)).toBeTruthy();
     }
   });
 });

@@ -9,7 +9,7 @@ import {
   type RegexRule,
   type RuleConfig,
 } from "../extensions/cartguard-validator/src/rules";
-import { parseDraftConfig, simulateOrders, validateDraftConfig } from "../app/lib/cartguard.server";
+import { simulateOrders, validateRuleConfig } from "../app/lib/cartguard.server";
 
 const ALL_ON = { enable_vip: true, enable_po_box: true, enable_quantity: true, enable_geo: true };
 
@@ -159,26 +159,30 @@ describe("Function entrypoint", () => {
 });
 
 describe("admin helpers", () => {
-  const validDraft = {
-    regex_rules: JSON.stringify([poBox]),
-    quantity_limits: JSON.stringify({ bulk: 10 }),
-    geo_blocklist: JSON.stringify({ countries: ["Costa Rica"] }),
-    vip_allowlist: JSON.stringify(["a@b.com"]),
+  const validRules = {
+    settings: ALL_ON,
+    regexRules: [poBox],
+    quantityLimits: { bulk: 10 },
+    geoBlocklist: { countries: ["Costa Rica"] },
+    vipAllowlist: ["a@b.com"],
   };
 
-  it("accepts a valid draft and normalizes countries", () => {
-    expect(validateDraftConfig(validDraft)).toEqual({});
-    expect(parseDraftConfig(validDraft, ALL_ON).geoBlocklist.countries).toEqual(["CR"]);
+  it("accepts valid rules and normalizes countries", () => {
+    const { config: saved, errors } = validateRuleConfig(validRules);
+    expect(errors).toEqual({});
+    expect(saved?.geoBlocklist.countries).toEqual(["CR"]);
+    expect(saved?.quantityLimits).toEqual({ bulk: { max: 10 } });
   });
 
   it("rejects invalid regex and unknown countries", () => {
-    const errors = validateDraftConfig({
-      ...validDraft,
-      regex_rules: JSON.stringify([{ pattern: "(" }]),
-      geo_blocklist: JSON.stringify({ countries: ["Atlantis"] }),
+    const { config: saved, errors } = validateRuleConfig({
+      ...validRules,
+      regexRules: [{ pattern: "(" }],
+      geoBlocklist: { countries: ["Atlantis"] },
     });
-    expect(errors.regex_rules).toBeTruthy();
-    expect(errors.geo_blocklist).toBeTruthy();
+    expect(saved).toBeNull();
+    expect(errors.address).toBeTruthy();
+    expect(errors.geo).toBeTruthy();
   });
 
   it("simulates orders with the same engine as checkout", () => {
@@ -252,8 +256,8 @@ describe("exploit hardening", () => {
   });
 
   it("rejects patterns that could freeze checkout", () => {
-    const errors = validateDraftConfig({ regex_rules: JSON.stringify([{ pattern: "(a+)+$" }]), quantity_limits: "", geo_blocklist: "", vip_allowlist: "" });
-    expect(errors.regex_rules).toBeTruthy();
+    const { errors } = validateRuleConfig({ regexRules: [{ pattern: "(a+)+$" }] });
+    expect(errors.address).toBeTruthy();
   });
 
   it("uses the signed-in customer's email in the Function, not the typed one", () => {
