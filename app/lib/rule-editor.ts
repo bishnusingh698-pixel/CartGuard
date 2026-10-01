@@ -14,7 +14,9 @@
 import {
   ADDRESS_PRESETS,
   DEFAULT_ADDRESS_MESSAGE,
+  MAX_ORDER_AMOUNT,
   MAX_PATTERN_LENGTH,
+  MAX_UNITS,
   MIN_VIP_ADDRESS_LENGTH,
   PRODUCT_GID_PREFIX,
   compileRegex,
@@ -26,15 +28,16 @@ import {
   type RuleConfig,
 } from "../../extensions/cartguard-validator/src/rules";
 import { findCountry, isCountryCode, isValidStateEntry } from "./regions";
-import type { RuleSection } from "./rule-summary";
+import { formatNumber, type RuleSection } from "./rule-summary";
 
 export const MESSAGE_MAX_LENGTH = 250;
-export const MAX_UNITS = 1_000_000;
+export { MAX_ORDER_AMOUNT, MAX_UNITS };
+
 export const KEYWORD_MESSAGE = "Your delivery address contains words we can't ship to. Please use a different address.";
 /** Message older builds saved with specific-address rules. */
 const LEGACY_STREET_MESSAGE = "We can't deliver to this address. Please use a different delivery address.";
 
-export const BUILT_IN_CHECKS = ["po_box", "freight", "military"] as const;
+export const BUILT_IN_CHECKS = ["po_box", "military"] as const;
 export type BuiltInCheck = (typeof BUILT_IN_CHECKS)[number];
 
 function isBuiltInCheck(preset: string | undefined): preset is BuiltInCheck {
@@ -55,7 +58,22 @@ export type AddressRuleRow = {
 
 export type LimitTarget = "tag" | "product" | "all";
 
-export type LimitRow = { id: string; target: LimitTarget; value: string; max: string; message: string };
+/**
+ * One row of the "Order quantities" editor. Unit bounds apply to the matched
+ * product(s); the amount bounds apply to the whole order and are only offered
+ * on the "Every product" row, so one row always reads as one rule.
+ */
+export type LimitRow = {
+  id: string;
+  target: LimitTarget;
+  value: string;
+  min: string;
+  max: string;
+  /** Order total bounds, in the shop currency, only used on "Every product" rows. */
+  minAmount: string;
+  maxAmount: string;
+  message: string;
+};
 
 export type EditorState = {
   settings: CartGuardSettings;
@@ -81,7 +99,7 @@ export function newAddressRule(): AddressRuleRow {
 }
 
 export function newLimit(): LimitRow {
-  return { id: nextId("limit"), target: "tag", value: "", max: "", message: "" };
+  return { id: nextId("limit"), target: "tag", value: "", min: "", max: "", minAmount: "", maxAmount: "", message: "" };
 }
 
 export function escapeRegex(value: string): string {
@@ -113,7 +131,14 @@ function ruleToRow(rule: RegexRule): AddressRuleRow {
 }
 
 function limitToRow(key: string, limit: QuantityLimit): LimitRow {
-  const base = { id: nextId("limit"), max: String(limit.max), message: limit.message ?? "" };
+  const base = {
+    id: nextId("limit"),
+    min: limit.min === undefined ? "" : String(limit.min),
+    max: limit.max === undefined ? "" : String(limit.max),
+    minAmount: limit.minAmount === undefined ? "" : String(limit.minAmount),
+    maxAmount: limit.maxAmount === undefined ? "" : String(limit.maxAmount),
+    message: limit.message ?? "",
+  };
   if (key === "*" || key.toLowerCase() === "all") return { ...base, target: "all", value: "" };
   if (key.startsWith(PRODUCT_GID_PREFIX)) return { ...base, target: "product", value: key.slice(PRODUCT_GID_PREFIX.length) };
   if (/^\d+$/.test(key)) return { ...base, target: "product", value: key };
@@ -213,9 +238,21 @@ export function configFromEditor(state: EditorState): RuleConfig {
   for (const row of state.limits) {
     const key = limitKey(row);
     if (!key) continue; // an untouched row: nothing to limit yet
-    const max = Number(row.max.trim());
+    const limit: QuantityLimit = {};
+    const min = readUnits(row.min);
+    const max = readUnits(row.max);
+    // Amount bounds are order-wide, so they are only read from the
+    // "Every product" row. A value still being typed is left out here and
+    // reported by validateEditor instead of being half-saved.
+    const minAmount = row.target === "all" ? readAmount(row.minAmount) : undefined;
+    const maxAmount = row.target === "all" ? readAmount(row.maxAmount) : undefined;
+    if (min === null || max === null || minAmount === null || maxAmount === null) continue;
+    if (min !== undefined) limit.min = min;
+    if (max !== undefined) limit.max = max;
+    if (minAmount !== undefined) limit.minAmount = minAmount;
+    if (maxAmount !== undefined) limit.maxAmount = maxAmount;
     const message = row.message.trim();
-    quantityLimits[key] = message ? { max, message } : { max };
+    quantityLimits[key] = message ? { ...limit, message } : limit;
   }
 
   return {
@@ -230,6 +267,28 @@ export function configFromEditor(state: EditorState): RuleConfig {
     },
     vipAllowlist: [...state.vipEmails, ...state.vipAddresses],
   };
+}
+
+/**
+ * Units typed in a limit row: a whole number of at least 1, or undefined when
+ * the field is blank. Null means the value can't be saved. Zero is rejected on
+ * purpose: a bound of 0 would stop every order that contains the product.
+ */
+function readUnits(raw: string): number | undefined | null {
+  const value = raw.trim();
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_UNITS) return null;
+  return parsed;
+}
+
+/** Order total typed in a limit row. Null means the value can't be saved. */
+function readAmount(raw: string): number | undefined | null {
+  const value = raw.trim().replace(/[\s,]/g, "");
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_ORDER_AMOUNT) return null;
+  return Math.round(parsed * 100) / 100;
 }
 
 /* ── Field parsers ───────────────────────────────────────────────────────── */
@@ -380,8 +439,9 @@ export function validateEditor(state: EditorState): EditorErrors {
   const seen = new Set<string>();
   for (const row of state.limits) {
     const value = row.value.trim();
+    const amountFields = row.target === "all" && (row.minAmount.trim() || row.maxAmount.trim());
     if (row.target !== "all" && !value) {
-      if (row.max.trim() || row.message.trim()) {
+      if (row.min.trim() || row.max.trim() || row.message.trim() || amountFields) {
         add("quantity", row.id, "value", row.target === "tag" ? "Enter a product tag, or remove this limit." : "Enter a product ID, or remove this limit.");
       }
       continue;
@@ -395,9 +455,31 @@ export function validateEditor(state: EditorState): EditorErrors {
       if (seen.has(key)) add("quantity", row.id, "value", "You already have a limit for this. Change or remove one of them.");
       seen.add(key);
     }
-    const max = Number(row.max.trim());
-    if (!row.max.trim() || !Number.isInteger(max) || max < 1 || max > MAX_UNITS) {
-      add("quantity", row.id, "max", "Enter a whole number from 1 to 1,000,000.");
+
+    const min = readUnits(row.min);
+    const max = readUnits(row.max);
+    if (min === null) add("quantity", row.id, "min", `Enter a whole number from 1 to ${formatNumber(MAX_UNITS)}, or leave it blank.`);
+    if (max === null) add("quantity", row.id, "max", `Enter a whole number from 1 to ${formatNumber(MAX_UNITS)}, or leave it blank.`);
+    if (min !== null && max !== null && min !== undefined && max !== undefined && min > max) {
+      add("quantity", row.id, "min", "The minimum can't be more than the maximum.");
+    }
+    if (min === undefined && max === undefined && !amountFields) {
+      add("quantity", row.id, "max", "Set a minimum, a maximum or an order amount. Remove this limit if you don't need it.");
+    }
+
+    if (row.target !== "all") {
+      // Amount bounds are order-wide, so they belong on the "Every product" row.
+      for (const field of ["minAmount", "maxAmount"] as const) {
+        if (row[field].trim()) add("quantity", row.id, field, 'Order amounts only apply to the "Every product" limit.');
+      }
+      continue;
+    }
+    const minAmount = readAmount(row.minAmount);
+    const maxAmount = readAmount(row.maxAmount);
+    if (minAmount === null) add("quantity", row.id, "minAmount", `Enter an amount up to ${formatNumber(MAX_ORDER_AMOUNT)}, or leave it blank.`);
+    if (maxAmount === null) add("quantity", row.id, "maxAmount", `Enter an amount up to ${formatNumber(MAX_ORDER_AMOUNT)}, or leave it blank.`);
+    if (minAmount !== null && maxAmount !== null && minAmount !== undefined && maxAmount !== undefined && minAmount > maxAmount) {
+      add("quantity", row.id, "minAmount", "The smallest order can't be more than the largest one.");
     }
   }
 

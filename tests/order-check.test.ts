@@ -48,3 +48,39 @@ describe("order check", () => {
     expect(result.bySection).toEqual({ geo: 1, address: 1, quantity: 0, vip: 0 });
   });
 });
+
+describe("order check with amount limits", () => {
+  it("reports the orders the total would have stopped", () => {
+    const result = simulateOrders(
+      [
+        {
+          id: "gid://shopify/Order/2001",
+          name: "#2001",
+          currencyCode: "USD",
+          shippingAddress: { address1: "1 Main St", countryCode: "US" },
+          lineItems: {
+            nodes: [{ quantity: 3, originalTotalSet: { shopMoney: { amount: "600.00" } }, product: { id: "gid://shopify/Product/1", tags: [] } }],
+          },
+        },
+        {
+          id: "gid://shopify/Order/2002",
+          name: "#2002",
+          currencyCode: "USD",
+          shippingAddress: { address1: "2 Main St", countryCode: "US" },
+          lineItems: {
+            nodes: [{ quantity: 1, originalTotalSet: { shopMoney: { amount: "20.00" } }, product: { id: "gid://shopify/Product/2", tags: [] } }],
+          },
+        },
+      ],
+      {
+        ...rules,
+        settings: { ...rules.settings, enable_quantity: true },
+        quantityLimits: { all: { minAmount: 50, maxAmount: 500 } },
+      },
+    );
+    expect(result.blocked).toBe(2);
+    expect(result.bySection.quantity).toBe(2);
+    expect(result.matches[0].reasons[0]).toMatch(/above the maximum/);
+    expect(result.matches[1].reasons[0]).toMatch(/below the minimum/);
+  });
+});

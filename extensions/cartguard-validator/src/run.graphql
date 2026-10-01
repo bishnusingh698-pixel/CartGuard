@@ -8,6 +8,11 @@ query RunInput($limitTags: [String!] = []) {
     }
     lines {
       quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+      }
       merchandise {
         __typename
         ... on ProductVariant {
@@ -31,6 +36,12 @@ query RunInput($limitTags: [String!] = []) {
         zip
         countryCode
       }
+    }
+  }
+  cost {
+    totalAmount {
+      amount
+      currencyCode
     }
   }
   shop {

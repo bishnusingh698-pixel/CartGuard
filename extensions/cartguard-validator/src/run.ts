@@ -37,6 +37,7 @@ export type RunInput = {
     buyerIdentity?: { email?: string | null; customer?: { email?: string | null } | null } | null;
     lines?: Array<{
       quantity?: number | null;
+      cost?: { amountPerQuantity?: { amount?: string | null } | null } | null;
       merchandise?: {
         __typename?: string;
         product?: {
@@ -46,6 +47,7 @@ export type RunInput = {
       } | null;
     } | null> | null;
     deliveryGroups?: Array<{ deliveryAddress?: CartAddress | null } | null> | null;
+    cost?: { totalAmount?: { amount?: string | null; currencyCode?: string | null } | null } | null;
   } | null;
   shop?: {
     settings?: MetafieldValue;
@@ -55,6 +57,13 @@ export type RunInput = {
     vip_allowlist?: MetafieldValue;
   } | null;
 };
+
+/** Money arrives as a decimal string ("12.99"); anything else is unknown. */
+function parseAmount(value: unknown): number | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 export function toCartInput(input: RunInput): CartInput {
   const cart = input.cart;
@@ -72,7 +81,13 @@ export function toCartInput(input: RunInput): CartInput {
     for (const entry of hasTags) {
       if (entry?.hasTag === true && typeof entry.tag === "string") tags.push(entry.tag);
     }
-    lines.push({ index, productId, quantity: Number(line?.quantity ?? 0), tags });
+    lines.push({
+      index,
+      productId,
+      quantity: Number(line?.quantity ?? 0),
+      tags,
+      unitPrice: parseAmount(line?.cost?.amountPerQuantity?.amount),
+    });
   });
 
   const addresses: CartInput["addresses"] = [];
@@ -81,11 +96,14 @@ export function toCartInput(input: RunInput): CartInput {
     if (group?.deliveryAddress) addresses.push({ groupIndex, address: group.deliveryAddress });
   });
 
+  const totalAmount = cart?.cost?.totalAmount;
   return {
     email: cart?.buyerIdentity?.email ?? null,
     customerEmail: cart?.buyerIdentity?.customer?.email ?? null,
     lines,
     addresses,
+    totalAmount: parseAmount(totalAmount?.amount),
+    currencyCode: totalAmount?.currencyCode ?? null,
   };
 }
 

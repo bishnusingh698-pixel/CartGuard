@@ -4,6 +4,7 @@ import {
   ADDRESS_PRESETS,
   collectLimitTags,
   evaluateCart,
+  parseConfig,
   type CartAddress,
   type CartInput,
   type RegexRule,
@@ -25,7 +26,6 @@ function config(overrides: Partial<RuleConfig> = {}): RuleConfig {
 }
 
 const poBox: RegexRule = { preset: "po_box", pattern: ADDRESS_PRESETS.po_box.pattern, message: ADDRESS_PRESETS.po_box.message };
-const freight: RegexRule = { preset: "freight", pattern: ADDRESS_PRESETS.freight.pattern, message: ADDRESS_PRESETS.freight.message };
 
 function cartAt(address: CartAddress, extra: Partial<CartInput> = {}): CartInput {
   return { email: null, lines: [], addresses: [{ groupIndex: 0, address }], ...extra };
@@ -41,14 +41,16 @@ describe("address rules", () => {
   });
 
   it("does not block look-alike streets or office suites", () => {
-    const rules = config({ regexRules: [poBox, freight] });
+    const rules = config({ regexRules: [poBox] });
     expect(evaluateCart(cartAt({ address1: "12 Tempo Box Road", countryCode: "US" }), rules)).toHaveLength(0);
     expect(evaluateCart(cartAt({ address1: "1 Market St", address2: "Suite 400", countryCode: "US" }), rules)).toHaveLength(0);
   });
 
-  it("blocks freight forwarders", () => {
-    const violations = evaluateCart(cartAt({ address1: "Suite 400 Freight Forwarder Hub", countryCode: "US" }), config({ regexRules: [freight] }));
-    expect(violations).toHaveLength(1);
+  it("no longer ships a freight forwarder preset", () => {
+    expect(Object.keys(ADDRESS_PRESETS)).toEqual(["po_box", "military"]);
+    // An address mentioning forwarding is only blocked when the merchant adds
+    // their own rule for it.
+    expect(evaluateCart(cartAt({ address1: "Suite 400 Freight Forwarder Hub", countryCode: "US" }), config())).toHaveLength(0);
   });
 
   it("applies country-scoped rules only in that country", () => {
@@ -274,5 +276,186 @@ describe("exploit hardening", () => {
       shop,
     });
     expect(signedIn.operations[0].validationAdd.errors).toHaveLength(0);
+  });
+});
+
+describe("minimum and maximum limits", () => {
+  const line = (quantity: number, unitPrice = 10) => ({
+    email: null,
+    addresses: [],
+    lines: [{ index: 0, productId: "gid://shopify/Product/1", quantity, tags: [], unitPrice }],
+  });
+
+  it("blocks orders under the minimum quantity", () => {
+    const violations = evaluateCart(line(2), config({ quantityLimits: { all: { min: 3 } } }));
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({ rule: "quantity", target: "$.cart.lines[0].quantity" });
+    expect(violations[0].message).toMatch(/at least 3/);
+    expect(evaluateCart(line(3), config({ quantityLimits: { all: { min: 3 } } }))).toHaveLength(0);
+  });
+
+  it("blocks orders over the maximum quantity and allows the boundary", () => {
+    const rules = config({ quantityLimits: { all: { max: 5 } } });
+    expect(evaluateCart(line(6), rules)).toHaveLength(1);
+    expect(evaluateCart(line(5), rules)).toHaveLength(0);
+  });
+
+  it("applies a minimum and a maximum at the same time", () => {
+    const rules = config({ quantityLimits: { all: { min: 2, max: 4 } } });
+    expect(evaluateCart(line(1), rules)).toHaveLength(1);
+    expect(evaluateCart(line(3), rules)).toHaveLength(0);
+    expect(evaluateCart(line(5), rules)).toHaveLength(1);
+  });
+
+  it("aggregates the units of one product across variants before comparing", () => {
+    const cart: CartInput = {
+      email: null,
+      addresses: [],
+      lines: [
+        { index: 0, productId: "gid://shopify/Product/1", quantity: 1, tags: [] },
+        { index: 1, productId: "gid://shopify/Product/1", quantity: 1, tags: [] },
+      ],
+    };
+    expect(evaluateCart(cart, config({ quantityLimits: { all: { min: 3 } } }))).toHaveLength(1);
+  });
+
+  it("blocks orders over the maximum order amount", () => {
+    const violations = evaluateCart(line(1, 600), config({ quantityLimits: { all: { maxAmount: 500 } } }));
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({ rule: "amount", target: "$.cart.cost.totalAmount" });
+    expect(violations[0].detail).toMatch(/\$600\.00/);
+    expect(evaluateCart(line(1, 500), config({ quantityLimits: { all: { maxAmount: 500 } } }))).toHaveLength(0);
+  });
+
+  it("blocks orders under the minimum order amount", () => {
+    const violations = evaluateCart(line(1, 20), config({ quantityLimits: { all: { minAmount: 50 } } }));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].rule).toBe("amount");
+    expect(evaluateCart(line(1, 50), config({ quantityLimits: { all: { minAmount: 50 } } }))).toHaveLength(0);
+  });
+
+  it("prefers the cart total over summing line prices", () => {
+    const cart = { ...line(1, 10), totalAmount: 900, currencyCode: "USD" };
+    expect(evaluateCart(cart, config({ quantityLimits: { all: { maxAmount: 500 } } }))).toHaveLength(1);
+  });
+
+  it("uses the tightest amount bound when several limits set one", () => {
+    const rules = config({ quantityLimits: { all: { maxAmount: 5000 }, bulk: { maxAmount: 100 } } });
+    expect(evaluateCart(line(1, 300), rules)).toHaveLength(1);
+    expect(evaluateCart(line(1, 300), config({ quantityLimits: { all: { maxAmount: 5000 } } }))).toHaveLength(0);
+  });
+
+  it("never blocks on a cart with no prices at all", () => {
+    const cart = { email: null, addresses: [], lines: [{ index: 0, productId: "gid://shopify/Product/1", quantity: 2, tags: [] }] };
+    expect(evaluateCart(cart, config({ quantityLimits: { all: { minAmount: 50, maxAmount: 500 } } }))).toHaveLength(0);
+  });
+
+  it("reads legacy maximum-only limits and drops bounds that make no sense", () => {
+    const raw = JSON.stringify({ a: 10, b: { max: 5 }, c: { min: 3, max: 2 }, d: { maxAmount: -1 }, e: {} });
+    expect(parseConfig({ quantity_limits: raw }).quantityLimits).toEqual({ a: { max: 10 }, b: { max: 5 } });
+  });
+
+  const tagged = (quantity: number, tag: string) => ({
+    email: null,
+    addresses: [],
+    lines: [{ index: 0, productId: "gid://shopify/Product/1", quantity, tags: [tag] }],
+  });
+
+  it("keeps a tag limit when a looser limit also matches", () => {
+    // A tag limit must tighten the "every product" limit, never be replaced by it.
+    const rules = config({ quantityLimits: { all: { max: 10 }, bulk: { max: 3 } } });
+    const violations = evaluateCart(tagged(5, "bulk"), rules);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].detail).toContain('tag "bulk"');
+    expect(evaluateCart(tagged(5, "other"), rules)).toHaveLength(0);
+  });
+
+  it("applies the largest minimum when several limits match", () => {
+    const rules = config({ quantityLimits: { all: { min: 2 }, bulk: { min: 4 } } });
+    expect(evaluateCart(tagged(3, "bulk"), rules)).toHaveLength(1);
+    expect(evaluateCart(tagged(4, "bulk"), rules)).toHaveLength(0);
+  });
+
+  it("blocks the maximum first when a product is under its minimum and over its maximum", () => {
+    const rules = config({ quantityLimits: { all: { min: 3, max: 5 } } });
+    const violations = evaluateCart(line(9), rules);
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toMatch(/up to 5/);
+  });
+
+  it("keeps a custom message on both the minimum and the maximum", () => {
+    const rules = config({ quantityLimits: { all: { min: 3, message: "Buy at least 3." } } });
+    expect(evaluateCart(line(1), rules)[0].message).toBe("Buy at least 3.");
+  });
+});
+
+describe("VIP bypass", () => {
+  it("skips quantity, amount, address and region rules for a signed-in VIP", () => {
+    const rules = config({
+      regexRules: [poBox],
+      quantityLimits: { all: { min: 10, max: 1, minAmount: 10_000, maxAmount: 1 } },
+      geoBlocklist: { countries: [], zips: ["90210"], cities: [], states: [] },
+      vipAllowlist: ["vip@store.com"],
+    });
+    const cart = {
+      email: null,
+      customerEmail: "vip@store.com",
+      lines: [{ index: 0, productId: "gid://shopify/Product/1", quantity: 1, tags: [], unitPrice: 5 }],
+      addresses: [{ groupIndex: 0, address: { address1: "P.O. Box 1", zip: "90210", countryCode: "US" } }],
+    };
+    expect(evaluateCart(cart, rules)).toHaveLength(0);
+  });
+
+  it("still applies the minimum and maximum to everyone else", () => {
+    const rules = config({ quantityLimits: { all: { min: 5 } }, vipAllowlist: ["vip@store.com"] });
+    const cart = {
+      email: null,
+      customerEmail: "other@store.com",
+      lines: [{ index: 0, productId: "p1", quantity: 1, tags: [] }],
+      addresses: [],
+    };
+    expect(evaluateCart(cart, rules)).toHaveLength(1);
+  });
+});
+
+describe("amount limits through the Function", () => {
+  const input = {
+    cart: {
+      lines: [
+        {
+          quantity: 2,
+          cost: { amountPerQuantity: { amount: "250.00" } },
+          merchandise: { __typename: "ProductVariant", product: { id: "gid://shopify/Product/1", hasTags: [] } },
+        },
+      ],
+      deliveryGroups: [],
+      cost: { totalAmount: { amount: "500.00", currencyCode: "USD" } },
+    },
+    shop: {
+      settings: { value: JSON.stringify({ enable_quantity: true }) },
+      quantity_limits: { value: JSON.stringify({ all: { maxAmount: 400 } }) },
+    },
+  };
+
+  it("reads the cart total from the Function input", () => {
+    const errors = run(input).operations[0].validationAdd.errors;
+    expect(errors).toHaveLength(1);
+    expect(errors[0].target).toBe("$.cart.cost.totalAmount");
+    expect(errors[0].message).toMatch(/\$400\.00/);
+  });
+
+  it("ignores an unreadable total and still uses the line prices", () => {
+    const broken = { ...input, cart: { ...input.cart, cost: { totalAmount: { amount: "" } } } };
+    expect(run(broken).operations[0].validationAdd.errors).toHaveLength(1);
+  });
+
+  it("blocks nothing when no price is readable anywhere", () => {
+    const priceless = { ...input, cart: { lines: [], deliveryGroups: [], cost: { totalAmount: { amount: "n/a" } } } };
+    expect(run(priceless).operations[0].validationAdd.errors).toHaveLength(0);
+  });
+
+  it("falls back to line prices when the cart total is missing", () => {
+    const noTotal = { ...input, cart: { lines: input.cart.lines, deliveryGroups: [] } };
+    expect(run(noTotal).operations[0].validationAdd.errors).toHaveLength(1);
   });
 });

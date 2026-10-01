@@ -9,12 +9,13 @@
  * Evaluation order:
  *   1. Blocked countries (hard embargo). Never bypassed, not even by VIPs.
  *   2. VIP allowlist. A signed-in customer whose account email is listed
- *      skips every remaining rule. Emails typed by guests are unverified and
- *      never grant VIP status. A listed street address only exempts delivery
- *      address line 1 from the address rules (step 4); it never skips
- *      quantity limits or geographic blocks.
- *   3. Quantity limits per product (by product tag, product ID or "all").
- *   4. Address rules (PO Box, freight forwarders, military, keywords, streets).
+ *      skips every remaining rule (quantity, amount, address, ZIP/city/state).
+ *      Emails typed by guests are unverified and never grant VIP status. A
+ *      listed street address is weaker evidence, so it only exempts delivery
+ *      address line 1 from the address rules (step 4).
+ *   3. Quantity limits per product (by product tag, product ID or "all") and
+ *      order amount limits, each with a minimum, a maximum or both.
+ *   4. Address rules (PO Box, military, keywords, streets).
  *   5. ZIP / city / state-province blocklists. Entries can be limited to one
  *      country: "US:90210", "US:Austin", "US-WA".
  *
@@ -43,7 +44,29 @@ export type RegexRule = {
   street?: string;
 };
 
-export type QuantityLimit = { max: number; message?: string };
+/**
+ * Bounds on one product (by tag, product ID or "all") or on the whole order.
+ * Every field is optional: `max` is the original cap and stays the only field
+ * older stores have, while `min`, `minAmount` and `maxAmount` add the
+ * lower bounds and the order-value bounds.
+ */
+export type QuantityLimit = {
+  /** Fewest units allowed in one order. */
+  min?: number;
+  /** Most units allowed in one order. */
+  max?: number;
+  /** Smallest order total, in the shop currency, for the whole order. */
+  minAmount?: number;
+  /** Largest order total, in the shop currency, for the whole order. */
+  maxAmount?: number;
+  message?: string;
+};
+
+/** Order value bounds. A limit with neither bound set is ignored. */
+export type AmountLimits = {
+  min?: number;
+  max?: number;
+};
 
 export type GeoBlocklist = {
   countries: string[];
@@ -85,6 +108,8 @@ export type CartLineInput = {
   quantity: number;
   /** Product tags that are relevant to the configured quantity limits. */
   tags: string[];
+  /** Price of one unit in the shop currency. Absent when the line has none. */
+  unitPrice?: number | null;
 };
 
 export type CartInput = {
@@ -94,9 +119,17 @@ export type CartInput = {
   customerEmail?: string | null;
   lines: CartLineInput[];
   addresses: Array<{ groupIndex: number; address: CartAddress }>;
+  /**
+   * Order total used for amount limits. The Function sends the cart total
+   * amount; the Impact Checker falls back to summing line prices so both
+   * evaluate the same rule the same way.
+   */
+  totalAmount?: number | null;
+  /** Currency code of the shop, used in amount messages. */
+  currencyCode?: string | null;
 };
 
-export type ViolationRule = "country" | "quantity" | "address" | "zip" | "city" | "state";
+export type ViolationRule = "country" | "quantity" | "amount" | "address" | "zip" | "city" | "state";
 
 export type Violation = {
   rule: ViolationRule;
@@ -112,6 +145,10 @@ export const MAX_REGEX_RULES = 50;
 export const MAX_PATTERN_LENGTH = 500;
 export const MAX_LIMIT_TAGS = 50;
 export const MIN_VIP_ADDRESS_LENGTH = 6;
+/** Most units any single quantity limit may allow. */
+export const MAX_UNITS = 1_000_000;
+/** Most order value any single amount limit may set, in the shop currency. */
+export const MAX_ORDER_AMOUNT = 1_000_000;
 /** Cap on address field length so hostile input can't exhaust the Function's instruction budget. */
 const MAX_FIELD_LENGTH = 512;
 export const PRODUCT_GID_PREFIX = "gid://shopify/Product/";
@@ -127,13 +164,6 @@ export const ADDRESS_PRESETS = {
     pattern:
       "\\bp\\.?\\s*[o0]\\.?\\s*b[o0]x\\b|\\bp\\.?\\s*o\\.?\\s*b\\.?\\s*\\d|\\bpost\\s+office\\s+box\\b|\\bpostal\\s+box\\b|\\bapartado\\s+postal\\b|\\bcasilla\\s+postal\\b|\\bpostfach\\b",
     message: "We can't ship to PO Boxes. Please enter a street address.",
-    country: undefined as string | undefined,
-  },
-  freight: {
-    label: "freight forwarder rule",
-    pattern:
-      "\\bfreight\\s+forward(er|ers|ing)\\b|\\bforwarding\\s+(company|agent|service|address)\\b|\\bpackage\\s+forward(er|ing)\\b|\\breship(per|pers|ping)?\\b|\\btransshipment\\b",
-    message: "We don't ship to freight forwarders or reshipping services.",
     country: undefined as string | undefined,
   },
   military: {
@@ -345,20 +375,61 @@ export function parseQuantityLimits(raw: unknown): Record<string, QuantityLimit>
   for (const [rawKey, value] of Object.entries(parsed)) {
     const key = rawKey.trim();
     if (!key) continue;
-    let max = Number.NaN;
+    const limit: QuantityLimit = {};
     let message: string | undefined;
     if (typeof value === "number") {
-      max = value;
+      // Legacy shorthand: a bare number is the maximum.
+      const max = readBound(value, 1, MAX_UNITS);
+      if (max === null) continue;
+      limit.max = max;
     } else if (isRecord(value)) {
-      max = Number(value.max);
+      // A limit with no usable bound would silently never block anything.
+      if (!readAnyBound(value)) continue;
+      const min = readBound(value.min, 1, MAX_UNITS);
+      const max = readBound(value.max, 1, MAX_UNITS);
+      const minAmount = readAmount(value.minAmount);
+      const maxAmount = readAmount(value.maxAmount);
+      if (min === null || max === null || minAmount === null || maxAmount === null) continue;
+      if (min !== undefined && max !== undefined && min > max) continue;
+      if (minAmount !== undefined && maxAmount !== undefined && minAmount > maxAmount) continue;
+      if (min !== undefined) limit.min = min;
+      if (max !== undefined) limit.max = max;
+      if (minAmount !== undefined) limit.minAmount = minAmount;
+      if (maxAmount !== undefined) limit.maxAmount = maxAmount;
       if (typeof value.message === "string" && value.message.trim()) message = value.message.trim();
+    } else {
+      continue;
     }
-    if (!Number.isFinite(max)) continue;
-    max = Math.floor(max);
-    if (max < 1) continue;
-    limits[key] = message ? { max, message } : { max };
+    limits[key] = message ? { ...limit, message } : limit;
   }
   return limits;
+}
+
+/** Whole units in min..max, or undefined when absent and null when unusable. */
+function readBound(value: unknown, min: number, max: number): number | null | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const whole = Math.floor(parsed);
+  if (whole < min || whole > max) return null;
+  return whole;
+}
+
+/** Money in the shop currency: 0..1,000,000 with at most 2 decimals. */
+function readAmount(value: unknown): number | null | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = typeof value === "string" ? Number(value.replace(/[\s,]/g, "")) : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_ORDER_AMOUNT) return null;
+  return Math.round(parsed * 100) / 100;
+}
+
+/** True when the stored object sets at least one bound the engine can use. */
+function readAnyBound(value: Record<string, unknown>): boolean {
+  return ["min", "max", "minAmount", "maxAmount"].some((field) => {
+    const raw = value[field];
+    if (raw === undefined || raw === null || raw === "") return false;
+    return Number.isFinite(typeof raw === "string" ? Number(raw.replace(/[\s,]/g, "")) : Number(raw));
+  });
 }
 
 export function parseGeoBlocklist(raw: unknown): GeoBlocklist {
@@ -503,24 +574,107 @@ function evaluateQuantityLimits(cart: CartInput, limits: Record<string, Quantity
 
   const violations: Violation[] = [];
   for (const [productId, aggregate] of products) {
-    // The strictest applicable limit wins, so one product yields one error.
-    let applied: { key: string; limit: QuantityLimit } | null = null;
+    // Every limit that matches the product is combined: the smallest maximum
+    // and the largest minimum win, so a tag limit always tightens a looser
+    // "every product" limit instead of one silently replacing the other.
+    let max: { value: number; key: string; limit: QuantityLimit } | null = null;
+    let min: { value: number; key: string; limit: QuantityLimit } | null = null;
     for (const [key, limit] of entries) {
       if (!limitMatches(key, productId, aggregate.tags)) continue;
-      if (!applied || limit.max < applied.limit.max) applied = { key, limit };
+      if (limit.max !== undefined && (max === null || limit.max < max.value)) max = { value: limit.max, key, limit };
+      if (limit.min !== undefined && (min === null || limit.min > min.value)) min = { value: limit.min, key, limit };
     }
-    if (applied && aggregate.quantity > applied.limit.max) {
+
+    const target = `$.cart.lines[${aggregate.firstIndex}].quantity`;
+    if (max && aggregate.quantity > max.value) {
       violations.push({
         rule: "quantity",
-        message:
-          applied.limit.message ||
-          `You can buy up to ${applied.limit.max} of this item per order. Please reduce the quantity.`,
-        target: `$.cart.lines[${aggregate.firstIndex}].quantity`,
-        detail: `${aggregate.quantity} units exceed the limit of ${applied.limit.max} for ${describeLimitKey(applied.key)}`,
+        message: max.limit.message || `You can buy up to ${max.value} of this item per order. Please reduce the quantity.`,
+        target,
+        detail: `${aggregate.quantity} units exceed the limit of ${max.value} for ${describeLimitKey(max.key)}`,
+      });
+    } else if (min && aggregate.quantity < min.value) {
+      violations.push({
+        rule: "quantity",
+        message: min.limit.message || `You need at least ${min.value} of this item per order. Please increase the quantity or remove it to continue.`,
+        target,
+        detail: `${aggregate.quantity} units are below the minimum of ${min.value} for ${describeLimitKey(min.key)}`,
       });
     }
   }
   return violations;
+}
+
+/** Order total, falling back to summing line prices so both callers agree. */
+export function cartTotal(cart: CartInput): number | null {
+  if (Number.isFinite(cart.totalAmount)) return cart.totalAmount as number;
+  let sum = 0;
+  let seen = false;
+  for (const line of cart.lines) {
+    const price = Number(line.unitPrice);
+    if (!Number.isFinite(price)) continue;
+    const quantity = Number.isFinite(line.quantity) && line.quantity > 0 ? line.quantity : 0;
+    sum += price * quantity;
+    seen = true;
+  }
+  return seen ? roundMoney(sum) : null;
+}
+
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** Collects the amount bounds from every limit, keeping the tightest of each. */
+export function amountBounds(limits: Record<string, QuantityLimit>): AmountLimits {
+  const bounds: AmountLimits = {};
+  for (const limit of Object.values(limits)) {
+    if (limit.minAmount !== undefined && (bounds.min === undefined || limit.minAmount > bounds.min)) {
+      bounds.min = limit.minAmount;
+    }
+    if (limit.maxAmount !== undefined && (bounds.max === undefined || limit.maxAmount < bounds.max)) {
+      bounds.max = limit.maxAmount;
+    }
+  }
+  return bounds;
+}
+
+function formatMoney(amount: number, currencyCode: string | null | undefined): string {
+  const value = `${roundMoney(amount).toFixed(2)}`;
+  try {
+    return new Intl.NumberFormat("en", { style: "currency", currency: currencyCode || "USD" }).format(amount);
+  } catch {
+    return currencyCode ? `${currencyCode} ${value}` : value;
+  }
+}
+
+function evaluateOrderAmount(cart: CartInput, limits: Record<string, QuantityLimit>): Violation[] {
+  const { min, max } = amountBounds(limits);
+  if (min === undefined && max === undefined) return [];
+  const total = cartTotal(cart);
+  // Without a trustworthy total there is nothing to compare, and a checkout
+  // must never be blocked on a guess.
+  if (total === null) return [];
+  if (max !== undefined && total > max) {
+    return [
+      {
+        rule: "amount",
+        message: `Orders over ${formatMoney(max, cart.currencyCode)} can't be placed online. Please contact us for help.`,
+        target: "$.cart.cost.totalAmount",
+        detail: `order total ${formatMoney(total, cart.currencyCode)} is above the maximum of ${formatMoney(max, cart.currencyCode)}`,
+      },
+    ];
+  }
+  if (min !== undefined && total < min) {
+    return [
+      {
+        rule: "amount",
+        message: `Orders need to be at least ${formatMoney(min, cart.currencyCode)}. Please add more to your cart to continue.`,
+        target: "$.cart.cost.totalAmount",
+        detail: `order total ${formatMoney(total, cart.currencyCode)} is below the minimum of ${formatMoney(min, cart.currencyCode)}`,
+      },
+    ];
+  }
+  return [];
 }
 
 type CompiledAddressRule = {
@@ -680,8 +834,8 @@ export function evaluateCart(cart: CartInput, config: RuleConfig): Violation[] {
   // 1) Hard embargo: applies to everyone, VIPs included.
   if (settings.enable_geo) safely(() => evaluateBlockedCountries(cart, config.geoBlocklist));
 
-  // 2) VIP: signed-in listed customers skip the rest; listed addresses are
-  //    handled inside the address rules.
+  // 2) VIP: a signed-in customer on the list skips every remaining rule.
+  //    Only the country embargo above still applies to them.
   let vip = emptyVipLists();
   if (settings.enable_vip) {
     try {
@@ -692,7 +846,10 @@ export function evaluateCart(cart: CartInput, config: RuleConfig): Violation[] {
     }
   }
 
-  if (settings.enable_quantity) safely(() => evaluateQuantityLimits(cart, config.quantityLimits));
+  if (settings.enable_quantity) {
+    safely(() => evaluateQuantityLimits(cart, config.quantityLimits));
+    safely(() => evaluateOrderAmount(cart, config.quantityLimits));
+  }
   if (settings.enable_po_box) safely(() => evaluateAddressRules(cart, config.regexRules, vip.addresses));
   if (settings.enable_geo) safely(() => evaluateRegionalBlocks(cart, config.geoBlocklist));
 

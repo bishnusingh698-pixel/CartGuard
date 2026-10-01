@@ -120,8 +120,8 @@ export default function SettingsPage() {
               <List type="number">
                 <List.Item>Blocked countries are always stopped, even for trusted customers.</List.Item>
                 <List.Item>Trusted customers who are signed in skip every other rule.</List.Item>
-                <List.Item>Order quantities are checked against your limits.</List.Item>
-                <List.Item>Delivery addresses are checked for PO Boxes, reshippers, blocked words and specific addresses.</List.Item>
+                <List.Item>Order quantities and the order total are checked against your limits.</List.Item>
+                <List.Item>Delivery addresses are checked for PO Boxes, military addresses, blocked words and specific addresses.</List.Item>
                 <List.Item>Blocked states, cities and postal codes are checked.</List.Item>
               </List>
               <Text as="p" variant="bodySm" tone="subdued">

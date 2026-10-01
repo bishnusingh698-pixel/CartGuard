@@ -114,3 +114,73 @@ describe("field parsers and labels", () => {
     expect(describeScopedEntry("US:Austin")).toBe("Austin, United States");
   });
 });
+
+describe("minimum, maximum and order amount limits", () => {
+  it("round trips every bound through the editor", () => {
+    const stored: RuleConfig = {
+      ...empty(),
+      quantityLimits: {
+        bulk: { min: 2, max: 10, message: "Between 2 and 10." },
+        all: { minAmount: 50, maxAmount: 5000 },
+      },
+    };
+    const editor = editorFromConfig(stored);
+    expect(validateEditor(editor).total).toBe(0);
+    expect(editor.limits.map((row) => [row.target, row.min, row.max, row.minAmount, row.maxAmount])).toEqual([
+      ["tag", "2", "10", "", ""],
+      ["all", "", "", "50", "5000"],
+    ]);
+    expect(configFromEditor(editor).quantityLimits).toEqual(stored.quantityLimits);
+    expect(validateRuleConfig(configFromEditor(editor)).errors).toEqual({});
+  });
+
+  it("flags a minimum above the maximum and bounds that aren't whole numbers", () => {
+    const editor = editorFromConfig(empty());
+    editor.limits = [{ ...newLimit(), value: "bulk", min: "10", max: "2" }];
+    editor.limits.push({ ...newLimit(), value: "other", max: "1.5" });
+    expect(validateEditor(editor).bySection.quantity).toBe(2);
+  });
+
+  it("asks for at least one bound before a limit can be saved", () => {
+    const editor = editorFromConfig(empty());
+    editor.limits = [{ ...newLimit(), value: "bulk" }];
+    expect(validateEditor(editor).bySection.quantity).toBe(1);
+  });
+
+  it("keeps order amounts on the Every product limit", () => {
+    const editor = editorFromConfig(empty());
+    editor.limits = [{ ...newLimit(), value: "bulk", max: "5", minAmount: "50" }];
+    expect(validateEditor(editor).fields[editor.limits[0].id].minAmount).toBeTruthy();
+  });
+
+  it("flags an order total range that runs backwards", () => {
+    const editor = editorFromConfig(empty());
+    editor.limits = [{ ...newLimit(), target: "all", minAmount: "500", maxAmount: "50" }];
+    expect(validateEditor(editor).bySection.quantity).toBe(1);
+  });
+
+  it("rejects impossible or unbounded limits on the server", () => {
+    const bad = [
+      { quantityLimits: { bulk: { min: 5, max: 2 } } },
+      { quantityLimits: { all: { minAmount: 500, maxAmount: 50 } } },
+      { quantityLimits: { bulk: { maxAmount: 100 } } },
+      { quantityLimits: { bulk: { min: 0 } } },
+      { quantityLimits: { all: { maxAmount: 2_000_000 } } },
+      { quantityLimits: { bulk: { message: "no bounds" } } },
+    ];
+    for (const input of bad) {
+      expect(validateRuleConfig(input).errors.quantity, JSON.stringify(input)).toBeTruthy();
+    }
+  });
+
+  it("saves the bounds that are valid", () => {
+    const { config, errors } = validateRuleConfig({
+      quantityLimits: { all: { minAmount: 49.999, maxAmount: 1000 }, bulk: { min: 1, max: 4, message: "1 to 4 only." } },
+    });
+    expect(errors).toEqual({});
+    expect(config?.quantityLimits).toEqual({
+      all: { minAmount: 50, maxAmount: 1000 },
+      bulk: { min: 1, max: 4, message: "1 to 4 only." },
+    });
+  });
+});

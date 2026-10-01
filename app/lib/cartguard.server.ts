@@ -20,7 +20,7 @@ import {
   setMetafields,
 } from "./admin-api.server";
 import { countryName, findCountry, isValidStateEntry } from "./regions";
-import { type RuleSection, limitTargetLabel } from "./rule-summary";
+import { type RuleSection, formatNumber, limitTargetLabel } from "./rule-summary";
 import { ensureValidationEnabled } from "./validation.server";
 import {
   ADDRESS_PRESETS,
@@ -36,8 +36,10 @@ import {
   type RegexRule,
   type RuleConfig,
   type ViolationRule,
+  MAX_ORDER_AMOUNT,
   MAX_PATTERN_LENGTH,
   MAX_REGEX_RULES,
+  MAX_UNITS,
   MIN_VIP_ADDRESS_LENGTH,
   collectLimitTags,
   compileRegex,
@@ -60,7 +62,6 @@ type ConfigKey = (typeof CONFIG_KEYS)[number];
 export const MAX_METAFIELD_BYTES = 10_000;
 const MAX_MESSAGE_LENGTH = 250;
 const MAX_QUANTITY_LIMITS = 50;
-const MAX_UNITS = 1_000_000;
 const MAX_LIST_ENTRIES = 500;
 const MAX_ENTRY_LENGTH = 255;
 const GEO_KEYS = ["countries", "zips", "cities", "states"] as const;
@@ -188,6 +189,82 @@ function addressRuleLabel(rule: Record<string, unknown>): string {
 }
 
 /**
+ * Reads the min/max unit and order-amount bounds of one limit, or null when the
+ * value can't be saved. A bare number is the historical "max" shorthand.
+ * Both readers answer null for anything absent, so presence is checked first.
+ */
+function readLimitBounds(key: string, value: unknown, add: (section: RuleSection, message: string) => void): QuantityLimit | null {
+  const label = limitTargetLabel(key);
+  const units = (raw: unknown): number | null => {
+    // A bound of 0 would block every order containing the product, so the
+    // smallest usable unit bound is 1 and "no bound" is left unset.
+    if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > MAX_UNITS) return null;
+    return raw;
+  };
+  const money = (raw: unknown): number | null => {
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > MAX_ORDER_AMOUNT) return null;
+    return Math.round(raw * 100) / 100;
+  };
+
+  if (typeof value === "number") {
+    const max = units(value);
+    if (max === null) {
+      add("quantity", `${label}: the limit must be a whole number from 1 to ${formatNumber(MAX_UNITS)}.`);
+      return null;
+    }
+    return { max };
+  }
+  if (!isRecord(value)) {
+    add("quantity", `${label}: the limit couldn't be read. ${RELOAD_HINT}`);
+    return null;
+  }
+
+  const present = (raw: unknown): boolean => raw !== undefined && raw !== null && raw !== "";
+  const hasUnits = present(value.min) || present(value.max);
+  const hasAmount = present(value.minAmount) || present(value.maxAmount);
+  if (!hasUnits && !hasAmount) {
+    add("quantity", `${label}: set a minimum, a maximum or an order amount, or remove this limit.`);
+    return null;
+  }
+
+  const min = units(value.min);
+  const max = units(value.max);
+  const minAmount = money(value.minAmount);
+  const maxAmount = money(value.maxAmount);
+  if ((present(value.min) && min === null) || (present(value.max) && max === null)) {
+    add("quantity", `${label}: unit limits must be whole numbers from 1 to ${formatNumber(MAX_UNITS)}.`);
+    return null;
+  }
+  if ((present(value.minAmount) && minAmount === null) || (present(value.maxAmount) && maxAmount === null)) {
+    add("quantity", `${label}: order amounts must be between 0 and ${formatNumber(MAX_ORDER_AMOUNT)}.`);
+    return null;
+  }
+  // Amount bounds are order-wide; on a product-specific row they would be
+  // ambiguous, so the editor moves them to the "Every product" limit.
+  if (hasAmount && !isGlobalLimitKey(key)) {
+    add("quantity", `${label}: order amounts only apply to the "Every product" limit.`);
+    return null;
+  }
+  if (min !== null && max !== null && min > max) {
+    add("quantity", `${label}: the minimum can't be more than the maximum.`);
+    return null;
+  }
+  if (minAmount !== null && maxAmount !== null && minAmount > maxAmount) {
+    add("quantity", `${label}: the smallest order can't be more than the largest one.`);
+    return null;
+  }
+
+  const limit: QuantityLimit = {};
+  if (min !== null) limit.min = min;
+  if (max !== null) limit.max = max;
+  if (minAmount !== null) limit.minAmount = minAmount;
+  if (maxAmount !== null) limit.maxAmount = maxAmount;
+  return limit;
+}
+
+const isGlobalLimitKey = (key: string): boolean => key === "*" || key.toLowerCase() === "all";
+
+/**
  * Checks the structured rules submitted by the editor and returns the
  * normalized config, or merchant-language errors keyed by editor section.
  */
@@ -278,12 +355,8 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
         continue;
       }
       const label = limitTargetLabel(key);
-      const rawMax = typeof value === "number" ? value : isRecord(value) ? value.max : undefined;
-      const max = typeof rawMax === "number" ? rawMax : Number.NaN;
-      if (!Number.isInteger(max) || max < 1 || max > MAX_UNITS) {
-        add("quantity", `${label}: the limit must be a whole number from 1 to 1,000,000.`);
-        continue;
-      }
+      const bounds = readLimitBounds(key, value, add);
+      if (!bounds) continue;
       let message: string | undefined;
       if (isRecord(value) && value.message !== undefined) {
         if (typeof value.message !== "string" || value.message.length > MAX_MESSAGE_LENGTH) {
@@ -292,7 +365,7 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
         }
         if (value.message.trim()) message = value.message.trim();
       }
-      quantityLimits[key] = message ? { max, message } : { max };
+      quantityLimits[key] = message ? { ...bounds, message } : bounds;
     }
   }
 
@@ -365,9 +438,11 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
 }
 
 export function serializeConfig(config: RuleConfig): Record<ConfigKey, string> {
-  const quantity: Record<string, number | QuantityLimit> = {};
+  // Only the fields the merchant set are written, so a limit with just a
+  // maximum stays a small object and never carries empty bounds.
+  const quantity: Record<string, QuantityLimit> = {};
   for (const [key, limit] of Object.entries(config.quantityLimits)) {
-    quantity[key] = limit.message ? { max: limit.max, message: limit.message } : limit.max;
+    quantity[key] = { ...limit };
   }
   return {
     settings: JSON.stringify(config.settings),
@@ -469,9 +544,13 @@ const RECENT_ORDERS_QUERY = `#graphql
         name
         email
         shippingAddress { address1 address2 city provinceCode zip countryCode }
+        currencyCode
         lineItems(first: 40) {
           nodes {
             quantity
+            originalTotalSet {
+              shopMoney { amount }
+            }
             product { id tags }
           }
         }
@@ -480,15 +559,28 @@ const RECENT_ORDERS_QUERY = `#graphql
   }
 `;
 
+type Money = { amount?: string | null } | null;
+
 type OrderNode = {
   id?: string | null;
   name?: string | null;
   email?: string | null;
+  currencyCode?: string | null;
   shippingAddress?: CartAddress | null;
   lineItems?: {
-    nodes?: Array<{ quantity?: number | null; product?: { id?: string | null; tags?: string[] | null } | null } | null> | null;
+    nodes?: Array<{
+      quantity?: number | null;
+      /** Line total, used for amount limits. */
+      originalTotalSet?: { shopMoney?: Money } | null;
+      product?: { id?: string | null; tags?: string[] | null } | null;
+    } | null> | null;
   } | null;
 };
+
+function toAmount(money: Money | undefined): number | null {
+  const amount = Number(money?.amount);
+  return Number.isFinite(amount) ? amount : null;
+}
 
 function orderToCart(order: OrderNode, limitTags: Set<string>): CartInput {
   const lines: CartLineInput[] = [];
@@ -500,7 +592,15 @@ function orderToCart(order: OrderNode, limitTags: Set<string>): CartInput {
     const tags = (item?.product?.tags ?? []).filter(
       (tag): tag is string => typeof tag === "string" && limitTags.has(tag.trim().toLowerCase()),
     );
-    lines.push({ index, productId, quantity: Number(item?.quantity ?? 0), tags });
+    const quantity = Number(item?.quantity ?? 0);
+    const lineTotal = toAmount(item?.originalTotalSet?.shopMoney);
+    lines.push({
+      index,
+      productId,
+      quantity,
+      tags,
+      unitPrice: lineTotal !== null && Number.isFinite(quantity) && quantity > 0 ? lineTotal / quantity : null,
+    });
   });
   return {
     email: order.email ?? null,
@@ -509,6 +609,7 @@ function orderToCart(order: OrderNode, limitTags: Set<string>): CartInput {
     customerEmail: order.email ?? null,
     lines,
     addresses: order.shippingAddress ? [{ groupIndex: 0, address: order.shippingAddress }] : [],
+    currencyCode: order.currencyCode ?? null,
   };
 }
 
@@ -519,6 +620,7 @@ const VIOLATION_SECTION: Record<ViolationRule, RuleSection> = {
   state: "geo",
   address: "address",
   quantity: "quantity",
+  amount: "quantity",
 };
 
 const capitalize = (text: string) => (text ? text[0].toUpperCase() + text.slice(1) : text);

@@ -34,10 +34,10 @@ const mockMetafieldsStore = new Map<string, string>([
         message: "We cannot deliver to PO Boxes. Please provide a street address.",
       },
       {
-        preset: "freight",
-        pattern:
-          "(?:\\bfreight\\s*forward|\\breship|\\bmail[.\\-\\s]*(?:drop|forwarding)|\\bpackage[.\\-\\s]*forwarding|\\bste[.\\-\\s]*[a-z0-9]+[.\\-\\s]*suite)",
-        message: "We cannot ship to freight forwarders or reshippers.",
+        preset: "military",
+        pattern: "\\b(apo|fpo|dpo)\\b",
+        message: "We cannot deliver to military addresses (APO/FPO/DPO).",
+        country: "US",
       },
     ]),
   ],
@@ -46,6 +46,7 @@ const mockMetafieldsStore = new Map<string, string>([
     JSON.stringify({
       "limited-edition": { max: 5, message: "Limit 5 per order for limited-edition items." },
       "bulk": 10,
+      all: { minAmount: 50, maxAmount: 5000 },
     }),
   ],
   [
@@ -68,6 +69,7 @@ const SAMPLE_ORDERS = [
     id: "gid://shopify/Order/1021",
     name: "#1021",
     email: "customer1@example.com",
+    currencyCode: "USD",
     shippingAddress: {
       address1: "P.O. Box 842",
       address2: "",
@@ -80,6 +82,7 @@ const SAMPLE_ORDERS = [
       nodes: [
         {
           quantity: 1,
+          originalTotalSet: { shopMoney: { amount: "24.00" } },
           product: { id: "gid://shopify/Product/101", tags: ["apparel"] },
         },
       ],
@@ -89,6 +92,7 @@ const SAMPLE_ORDERS = [
     id: "gid://shopify/Order/1022",
     name: "#1022",
     email: "buyer2@example.com",
+    currencyCode: "USD",
     shippingAddress: {
       address1: "Suite 400 Freight Forwarder Hub",
       address2: "",
@@ -101,6 +105,7 @@ const SAMPLE_ORDERS = [
       nodes: [
         {
           quantity: 2,
+          originalTotalSet: { shopMoney: { amount: "39.00" } },
           product: { id: "gid://shopify/Product/102", tags: ["gadget"] },
         },
       ],
@@ -110,6 +115,7 @@ const SAMPLE_ORDERS = [
     id: "gid://shopify/Order/1023",
     name: "#1023",
     email: "user3@example.com",
+    currencyCode: "USD",
     shippingAddress: {
       address1: "Calle 5, Avenida Central",
       address2: "",
@@ -122,6 +128,7 @@ const SAMPLE_ORDERS = [
       nodes: [
         {
           quantity: 1,
+          originalTotalSet: { shopMoney: { amount: "9.99" } },
           product: { id: "gid://shopify/Product/103", tags: ["standard"] },
         },
       ],
@@ -131,6 +138,7 @@ const SAMPLE_ORDERS = [
     id: "gid://shopify/Order/1024",
     name: "#1024",
     email: "soldier@example.mil",
+    currencyCode: "USD",
     shippingAddress: {
       address1: "Unit 2050 Box 4190",
       address2: "",
@@ -143,6 +151,7 @@ const SAMPLE_ORDERS = [
       nodes: [
         {
           quantity: 1,
+          originalTotalSet: { shopMoney: { amount: "14.25" } },
           product: { id: "gid://shopify/Product/104", tags: ["books"] },
         },
       ],
@@ -152,6 +161,7 @@ const SAMPLE_ORDERS = [
     id: "gid://shopify/Order/1025",
     name: "#1025",
     email: "collector@example.com",
+    currencyCode: "USD",
     shippingAddress: {
       address1: "100 Universal City Plaza",
       address2: "",
@@ -164,6 +174,7 @@ const SAMPLE_ORDERS = [
       nodes: [
         {
           quantity: 8,
+          originalTotalSet: { shopMoney: { amount: "312.00" } },
           product: { id: "gid://shopify/Product/105", tags: ["limited-edition"] },
         },
       ],
@@ -173,6 +184,7 @@ const SAMPLE_ORDERS = [
     id: "gid://shopify/Order/1026",
     name: "#1026",
     email: "vip@customer.com",
+    currencyCode: "USD",
     shippingAddress: {
       address1: "P.O. Box 12",
       address2: "",
@@ -185,6 +197,7 @@ const SAMPLE_ORDERS = [
       nodes: [
         {
           quantity: 1,
+          originalTotalSet: { shopMoney: { amount: "320.00" } },
           product: { id: "gid://shopify/Product/106", tags: ["luxury"] },
         },
       ],
@@ -194,6 +207,7 @@ const SAMPLE_ORDERS = [
     id: "gid://shopify/Order/1027",
     name: "#1027",
     email: "homer@example.com",
+    currencyCode: "USD",
     shippingAddress: {
       address1: "742 Evergreen Terrace",
       address2: "",
@@ -206,6 +220,7 @@ const SAMPLE_ORDERS = [
       nodes: [
         {
           quantity: 2,
+          originalTotalSet: { shopMoney: { amount: "15.00" } },
           product: { id: "gid://shopify/Product/107", tags: ["standard"] },
         },
       ],
@@ -215,6 +230,7 @@ const SAMPLE_ORDERS = [
     id: "gid://shopify/Order/1028",
     name: "#1028",
     email: "sherlock@example.co.uk",
+    currencyCode: "USD",
     shippingAddress: {
       address1: "221B Baker Street",
       address2: "",
@@ -227,6 +243,7 @@ const SAMPLE_ORDERS = [
       nodes: [
         {
           quantity: 1,
+          originalTotalSet: { shopMoney: { amount: "45.00" } },
           product: { id: "gid://shopify/Product/108", tags: ["vintage"] },
         },
       ],

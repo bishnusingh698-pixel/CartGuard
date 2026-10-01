@@ -4,7 +4,12 @@
  * vocabulary.
  */
 
-import { PRODUCT_GID_PREFIX, type FeatureFlag, type RuleConfig } from "../../extensions/cartguard-validator/src/rules";
+import {
+  PRODUCT_GID_PREFIX,
+  type FeatureFlag,
+  type QuantityLimit,
+  type RuleConfig,
+} from "../../extensions/cartguard-validator/src/rules";
 import { countryName } from "./regions";
 
 export const RULE_SECTIONS = ["geo", "address", "quantity", "vip"] as const;
@@ -21,7 +26,7 @@ export const SECTION_META: Record<RuleSection, SectionMeta> = {
   },
   address: {
     title: "Addresses",
-    description: "Block PO Boxes, reshipping services and specific addresses that are often used for fraud.",
+    description: "Block PO Boxes, military addresses, blocked words and specific addresses that are often used for fraud.",
     anchor: "addresses",
     flag: "enable_po_box",
   },
@@ -75,9 +80,28 @@ export function limitTargetLabel(key: string): string {
 
 const BUILT_IN_LABELS: Record<string, string> = {
   po_box: "PO Boxes",
-  freight: "Freight forwarders",
   military: "Military addresses",
 };
+
+const wholeUnits = (value: number | undefined): number | null =>
+  value === undefined || !Number.isFinite(value) ? null : value;
+
+/** "up to 10", "from 3", "1 to 10", plus the order amount when one is set. */
+export function limitRange(limit: QuantityLimit): string | null {
+  const parts: string[] = [];
+  const min = wholeUnits(limit.min);
+  const max = wholeUnits(limit.max);
+  if (min !== null && max !== null) parts.push(`${formatNumber(min)} to ${formatNumber(max)} units`);
+  else if (max !== null) parts.push(`up to ${formatNumber(max)} units`);
+  else if (min !== null) parts.push(`from ${formatNumber(min)} units`);
+  if (limit.minAmount !== undefined && Number.isFinite(limit.minAmount)) {
+    parts.push(`orders from ${formatNumber(limit.minAmount)}`);
+  }
+  if (limit.maxAmount !== undefined && Number.isFinite(limit.maxAmount)) {
+    parts.push(`orders up to ${formatNumber(limit.maxAmount)}`);
+  }
+  return parts.length > 0 ? parts.join(", ") : null;
+}
 
 export function summarizeSections(config: RuleConfig): Record<RuleSection, SectionSummary> {
   const { settings, geoBlocklist: geo, regexRules, quantityLimits, vipAllowlist } = config;
@@ -102,11 +126,9 @@ export function summarizeSections(config: RuleConfig): Record<RuleSection, Secti
   if (keywords > 0) addressDetails.push(pluralize(keywords, "blocked word"));
   if (specific > 0) addressDetails.push(pluralize(specific, "specific address", "specific addresses"));
 
-  // Skip limits still being typed (no valid number yet).
-  const limits = Object.entries(quantityLimits).filter(([, limit]) => Number.isFinite(limit.max) && limit.max > 0);
-  const quantityDetails = limits
-    .slice(0, 2)
-    .map(([key, limit]) => `${limitTargetLabel(key)}: up to ${formatNumber(limit.max)}`);
+  // Skip limits still being typed (no valid bound yet).
+  const limits = Object.entries(quantityLimits).filter(([, limit]) => limitRange(limit) !== null);
+  const quantityDetails = limits.slice(0, 2).map(([key, limit]) => `${limitTargetLabel(key)}: ${limitRange(limit)}`);
   if (limits.length > 2) quantityDetails.push(`${formatNumber(limits.length - 2)} more`);
 
   const emails = vipAllowlist.filter((entry) => entry.includes("@")).length;

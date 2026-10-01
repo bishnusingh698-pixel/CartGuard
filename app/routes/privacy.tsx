@@ -15,8 +15,9 @@ export default function PrivacyPolicy() {
           <div>
             <h2 className="text-lg font-semibold text-slate-900 mb-2">1. Overview</h2>
             <p>
-              CartGuard is a Shopify app that validates carts and checkouts (PO Box and freight
-              forwarder blocking, quantity limits, geographic restrictions and a VIP allowlist). We
+              CartGuard is a Shopify app that validates carts and checkouts (PO Box and military
+              address blocking, quantity and order amount limits, geographic restrictions and a
+              VIP allowlist). We
               don&apos;t sell or share personal data.
             </p>
           </div>

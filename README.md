@@ -7,7 +7,8 @@ Fraud prevention at checkout with a **Shopify Function** (`cart.validations.gene
 - **Rules** are stored in app-owned shop metafields (`$app:cartguard`, type `json`): `settings`, `regex_rules`, `quantity_limits`, `geo_blocklist`, `vip_allowlist`.
 - **Checkout rule**: saving creates or enables a Shopify Validation for the `cartguard-validator` Function (`blockOnFailure: false`) and writes its `function-configuration` metafield (`{ "limitTags": [...] }`), which feeds `product.hasTags` in the input query.
 - **One rule engine**: `extensions/cartguard-validator/src/rules.ts` is used by both the Function and the Impact Checker.
-- **Rule order**: blocked countries (applies to VIPs too) → VIP bypass → quantity limits → address rules → ZIP/city/province.
+- **Rule order**: blocked countries (applies to VIPs too) → VIP bypass → quantity and order amount limits → address rules → ZIP/city/province.
+- **Order limits**: each limit can set a minimum and/or a maximum number of units, plus a minimum and/or maximum order total. Amount bounds belong to the "every product" limit and apply to the whole order.
 - **Sessions**: Prisma + Postgres (`DATABASE_URL`), migrations in `prisma/migrations`.
 - **Webhooks** (`/webhooks`): `app/uninstalled` and `shop/redact` delete sessions, `customers/redact` removes the customer from the VIP allowlist, `customers/data_request` reports matches, `app/scopes_update` updates the session scope.
 

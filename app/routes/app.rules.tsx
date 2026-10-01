@@ -52,6 +52,7 @@ import { SectionBadge, sectionStatusText } from "../components/section-status";
 import { describeScopedEntry, getCountryOptions, type Option } from "../lib/regions";
 import {
   LIST_FIELD_IDS,
+  MAX_ORDER_AMOUNT,
   MAX_UNITS,
   MESSAGE_MAX_LENGTH,
   configFromEditor,
@@ -329,7 +330,13 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
           </Button>
         </InlineStack>
         <InlineGrid columns={{ xs: 1, md: everyProduct ? 2 : 3 }} gap="300">
-          <Select label="Applies to" options={TARGET_OPTIONS} value={row.target} onChange={(value) => onChange({ target: value as LimitTarget })} />
+          <Select
+            label="Applies to"
+            options={TARGET_OPTIONS}
+            value={row.target}
+            onChange={(value) => onChange({ target: value as LimitTarget })}
+            helpText={everyProduct ? "Covers the whole order, including its total value." : undefined}
+          />
           {!everyProduct && (
             <TextField
               label={row.target === "tag" ? "Product tag" : "Product ID"}
@@ -342,26 +349,73 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
             />
           )}
           <TextField
-            label="Most units per order"
+            label="At least this many units"
             type="number"
-            min={1}
+            min={0}
+            max={MAX_UNITS}
+            step={1}
+            value={row.min}
+            onChange={(value) => onChange({ min: value })}
+            placeholder="Leave blank for no minimum"
+            error={errors?.min}
+            autoComplete="off"
+          />
+          <TextField
+            label="At most this many units"
+            type="number"
+            min={0}
             max={MAX_UNITS}
             step={1}
             value={row.max}
             onChange={(value) => onChange({ max: value })}
-            placeholder="10"
+            placeholder="Leave blank for no maximum"
             error={errors?.max}
             autoComplete="off"
           />
         </InlineGrid>
+        {everyProduct && (
+          <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
+            <TextField
+              label="Order total must be at least"
+              type="number"
+              min={0}
+              max={MAX_ORDER_AMOUNT}
+              step={0.01}
+              value={row.minAmount}
+              onChange={(value) => onChange({ minAmount: value })}
+              placeholder="Leave blank for no minimum"
+              helpText="In your shop currency."
+              error={errors?.minAmount}
+              autoComplete="off"
+            />
+            <TextField
+              label="Order total must be at most"
+              type="number"
+              min={0}
+              max={MAX_ORDER_AMOUNT}
+              step={0.01}
+              value={row.maxAmount}
+              onChange={(value) => onChange({ maxAmount: value })}
+              placeholder="Leave blank for no maximum"
+              helpText="In your shop currency."
+              error={errors?.maxAmount}
+              autoComplete="off"
+            />
+          </InlineGrid>
+        )}
         <TextField
           label="Message customers see (optional)"
           value={row.message}
           onChange={(message) => onChange({ message })}
-          placeholder={`You can buy up to ${exampleMax} of this item per order. Please reduce the quantity.`}
+          placeholder={
+            everyProduct && !row.min.trim() && !row.max.trim()
+              ? "Orders over this amount can't be placed online. Please contact us for help."
+              : `You can buy up to ${exampleMax} of this item per order. Please reduce the quantity.`
+          }
           maxLength={MESSAGE_MAX_LENGTH}
           showCharacterCount
           autoComplete="off"
+          error={errors?.message}
         />
       </BlockStack>
     </Box>
@@ -717,12 +771,6 @@ export default function BlockRulesPage() {
                 helpText="Catches P.O. Box, Post Office Box, Apartado Postal and Postfach, including common misspellings."
                 checked={state.checks.po_box}
                 onChange={(checked) => setCheck("po_box", checked)}
-              />
-              <Checkbox
-                label="Block freight forwarders and reshipping services"
-                helpText="Addresses that mention forwarding or reshipping, which are often used to hide the real destination."
-                checked={state.checks.freight}
-                onChange={(checked) => setCheck("freight", checked)}
               />
               <Checkbox
                 label="Block US military addresses"
