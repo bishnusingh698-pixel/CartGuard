@@ -32,3 +32,14 @@ model Session {
 
   @@index([shop])
 }
+
+// App settings that belong to the shop rather than to one staff member.
+// `language` is the merchant's explicit choice in the language picker. A null
+// value means they haven't chosen yet, so the app follows the admin locale
+// until they pick one.
+model ShopPreference {
+  shop String @id
+  // BCP-47 code from app/i18n (e.g. "de", "pt-BR"), or null until chosen.
+  language         String?
+  languageChosenAt DateTime?
+}
