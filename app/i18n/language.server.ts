@@ -22,36 +22,56 @@ import { DEFAULT_LANGUAGE, type Language, normalizeLanguage, pickLanguage, resol
 export type ResolvedLanguage = {
   /** The language the app should render in. */
   language: Language;
-  /** True once the merchant has picked a language themselves. */
+  /** True once the merchant has answered the first-launch picker, either way. */
   chosen: boolean;
-  /** True when the choice came from the admin/browser rather than the shop. */
+  /** True when the language came from the admin/browser rather than a choice. */
   detected: boolean;
 };
 
-/** Reads the merchant's saved choice for a shop, if there is one. */
-export async function readChosenLanguage(shop: string | undefined): Promise<Language | null> {
-  if (!shop) return null;
+export type SavedLanguage = {
+  /** The language they picked, or null when following the admin locale. */
+  language: Language | null;
+  /** True once they have answered the picker, including by skipping it. */
+  asked: boolean;
+};
+
+/**
+ * Reads the merchant's language state for a shop.
+ *
+ * `asked` is tracked separately from `language` on purpose: skipping the picker
+ * is an answer, and if it left no trace the modal would reappear on every
+ * single page load.
+ */
+export async function readSavedLanguage(shop: string | undefined): Promise<SavedLanguage> {
+  if (!shop) return { language: null, asked: false };
   try {
     const row = await prisma.shopPreference.findUnique({ where: { shop } });
-    return normalizeLanguage(row?.language);
+    return { language: normalizeLanguage(row?.language), asked: Boolean(row?.languageChosenAt) };
   } catch (error) {
     // A missing table must never block the app from loading in English.
     console.warn("[CartGuard] Could not read the saved language preference:", error);
-    return null;
+    return { language: null, asked: false };
   }
 }
 
+/** Reads just the saved choice, for callers that only need the language. */
+export async function readChosenLanguage(shop: string | undefined): Promise<Language | null> {
+  return (await readSavedLanguage(shop)).language;
+}
+
 /**
- * Saves the merchant's explicit choice. Pass `null` to go back to following
- * the admin locale.
+ * Records the merchant's answer to the language picker. Pass `null` to follow
+ * the admin locale again, which is also what skipping does. Either way
+ * `languageChosenAt` is stamped, so the picker does not ask twice.
  */
 export async function writeChosenLanguage(shop: string, language: Language | null): Promise<void> {
   if (!shop) return;
   try {
+    const now = new Date();
     await prisma.shopPreference.upsert({
       where: { shop },
-      create: { shop, language, languageChosenAt: language ? new Date() : null },
-      update: { language, languageChosenAt: language ? new Date() : null },
+      create: { shop, language, languageChosenAt: now },
+      update: { language, languageChosenAt: now },
     });
   } catch (error) {
     console.error("[CartGuard] Could not save the language preference:", error);
@@ -86,21 +106,21 @@ export type ResolveOptions = {
  * request, so the answer is always available to both SSR and hydration.
  */
 export async function resolveRequestLanguage(request: Request, options: ResolveOptions = {}): Promise<ResolvedLanguage> {
-  const chosen = await readChosenLanguage(options.shop);
-  if (chosen) return { language: chosen, chosen: true, detected: false };
+  const saved = await readSavedLanguage(options.shop);
+  if (saved.language) return { language: saved.language, chosen: true, detected: false };
 
   const url = new URL(request.url);
   const requested = normalizeLanguage(url.searchParams.get("locale"));
-  if (requested) return { language: requested, chosen: false, detected: true };
+  if (requested) return { language: requested, chosen: saved.asked, detected: !saved.asked };
 
   // Shopify sends the admin user's chosen locale on GET requests to embedded apps.
   const fromAdmin = normalizeLanguage(options.sessionLocale);
-  if (fromAdmin) return { language: fromAdmin, chosen: false, detected: true };
+  if (fromAdmin) return { language: fromAdmin, chosen: saved.asked, detected: !saved.asked };
 
   const fromBrowser = pickLanguage(acceptLanguageTags(request.headers.get("accept-language")));
   if (fromBrowser !== DEFAULT_LANGUAGE) {
-    return { language: fromBrowser, chosen: false, detected: true };
+    return { language: fromBrowser, chosen: saved.asked, detected: !saved.asked };
   }
 
-  return { language: resolveLanguage(null), chosen: false, detected: false };
+  return { language: resolveLanguage(null), chosen: saved.asked, detected: false };
 }

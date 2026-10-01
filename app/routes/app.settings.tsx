@@ -15,12 +15,26 @@ import { friendlyErrorMessage } from "../lib/admin-api.server";
 import { effectiveRaw, parseConfig, readConfiguration, writeFunctionConfiguration } from "../lib/cartguard.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { type ValidationStatus, ensureValidationEnabled } from "../lib/validation.server";
+import { useI18n } from "../i18n/context";
+import { readSavedLanguage } from "../i18n/language.server";
+import type { Language } from "../i18n/locales";
+import type { MessageKey } from "../i18n/catalog";
+import { LanguageSetting } from "../components/language-picker";
+
+/** Shown as a mailto link, so it is a constant rather than a catalog string. */
+const SUPPORT_EMAIL = "support@cartguard.io";
 
 export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const { admin, isDemo } = await getAdmin(request);
-  return json<RulesState>(await loadRulesState(admin, isDemo));
+  const { admin, isDemo, shop } = await getAdmin(request);
+  const [state, saved] = await Promise.all([loadRulesState(admin, isDemo), readSavedLanguage(shop)]);
+  return json({
+    ...state,
+    /** The saved choice, so the select shows what is actually stored. */
+    savedLanguage: saved.language,
+    languageAsked: saved.asked,
+  });
 }
 
 type ActivateResponse = { ok: boolean; message?: string };
@@ -40,20 +54,41 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-const STATUS: Record<ValidationStatus["state"], { tone: "success" | "warning" | "critical"; label: string; text: string }> = {
-  active: { tone: "success", label: "On", text: "CartGuard checks every checkout against your block rules." },
-  inactive: { tone: "warning", label: "Off", text: "CartGuard's checkout check is switched off, so no order is blocked." },
-  missing: { tone: "warning", label: "Off", text: "CartGuard's checkout check hasn't been set up yet, so no order is blocked." },
+/**
+ * Status copy is looked up by catalog key rather than stored as a string, so
+ * every state stays translatable. The keys are typed as `MessageKey`, so a
+ * renamed or deleted key is a compile error here rather than a raw key
+ * rendered in the badge.
+ */
+const STATUS: Record<
+  ValidationStatus["state"],
+  { tone: "success" | "warning" | "critical"; badge: MessageKey; text: MessageKey }
+> = {
+  active: { tone: "success", badge: "common.on", text: "settings.protection.active.text" },
+  inactive: { tone: "warning", badge: "common.off", text: "settings.protection.inactive.text" },
+  missing: { tone: "warning", badge: "common.off", text: "settings.protection.missing.text" },
   function_not_deployed: {
     tone: "critical",
-    label: "Not installed",
-    text: "CartGuard's checkout check isn't installed on your store yet. This usually fixes itself within a few minutes of installing. If it doesn't, reinstall CartGuard or email support@cartguard.io.",
+    badge: "common.notInstalled",
+    text: "settings.protection.notInstalled.text",
   },
-  unknown: { tone: "warning", label: "Unknown", text: "We couldn't reach Shopify to check. Try again in a moment." },
+  unknown: { tone: "warning", badge: "common.unknown", text: "settings.protection.unknown.text" },
 };
 
+const DECISION_STEPS = [
+  "settings.how.step1",
+  "settings.how.step2",
+  "settings.how.step3",
+  "settings.how.step4",
+  "settings.how.step5",
+] as const;
+
 export default function SettingsPage() {
-  const { validation, needsMigration } = useLoaderData<typeof loader>() as unknown as RulesState;
+  const { validation, needsMigration, savedLanguage, languageAsked } = useLoaderData<typeof loader>() as unknown as RulesState & {
+    savedLanguage: Language | null;
+    languageAsked: boolean;
+  };
+  const { t, language } = useI18n();
   const fetcher = useFetcher<ActivateResponse>();
   const revalidator = useRevalidator();
   const shopify = useAppBridge();
@@ -63,89 +98,101 @@ export default function SettingsPage() {
   const failed = fetcher.state === "idle" && fetcher.data && !fetcher.data.ok ? fetcher.data.message : null;
 
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) shopify?.toast?.show("Checkout protection is on.");
-  }, [fetcher.state, fetcher.data, shopify]);
+    if (fetcher.state === "idle" && fetcher.data?.ok) shopify?.toast?.show(t("settings.protection.activate"));
+  }, [fetcher.state, fetcher.data, shopify, t]);
 
   return (
-    <Page title="Settings">
+    <Page title={t("settings.title")}>
       <Layout>
         {needsMigration && (
           <Layout.Section>
-            <Banner tone="warning" title="Your rules aren't applied at checkout yet" action={{ content: "Review block rules", url: "/app/rules" }}>
-              <Text as="p">They were saved by an older version of CartGuard. Save them once on the Block rules page to apply them.</Text>
+            <Banner
+              tone="warning"
+              title={t("settings.migration.title")}
+              action={{ content: t("settings.migration.action"), url: "/app/rules" }}
+            >
+              <Text as="p">{t("settings.migration.body")}</Text>
             </Banner>
           </Layout.Section>
         )}
 
         <Layout.AnnotatedSection
+          id="language"
+          title={t("language.title")}
+          description={t("language.description")}
+        >
+          <Card>
+            <LanguageSetting value={savedLanguage ?? language} chosen={languageAsked} detected={!languageAsked} />
+          </Card>
+        </Layout.AnnotatedSection>
+
+        <Layout.AnnotatedSection
           id="checkout-protection"
-          title="Checkout protection"
-          description="CartGuard runs inside Shopify checkout. If it was switched off, you can turn it back on here."
+          title={t("settings.protection.title")}
+          description={t("settings.protection.description")}
         >
           <Card>
             <BlockStack gap="300">
               <InlineStack gap="200" blockAlign="center">
                 <Text as="h3" variant="headingSm">
-                  Status
+                  {t("settings.protection.statusLabel")}
                 </Text>
-                <Badge tone={status.tone}>{status.label}</Badge>
+                <Badge tone={status.tone}>{t(status.badge as MessageKey)}</Badge>
               </InlineStack>
-              <Text as="p">{validation.state === "unknown" && validation.message ? validation.message : status.text}</Text>
+              <Text as="p">
+                {validation.state === "unknown" && validation.message
+                  ? validation.message
+                  : t(status.text as MessageKey)}
+              </Text>
               {failed && (
-                <Banner tone="critical" title="Checkout protection couldn't be turned on">
+                <Banner tone="critical" title={t("settings.protection.failed")}>
                   <Text as="p">{failed}</Text>
                 </Banner>
               )}
               <InlineStack gap="200">
                 {canActivate && (
                   <Button variant="primary" loading={activating} onClick={() => fetcher.submit({}, { method: "post" })}>
-                    Turn on checkout protection
+                    {t("settings.protection.activate")}
                   </Button>
                 )}
                 <Button loading={revalidator.state === "loading"} disabled={activating} onClick={() => revalidator.revalidate()}>
-                  Check again
+                  {t("settings.protection.checkAgain")}
                 </Button>
               </InlineStack>
             </BlockStack>
           </Card>
         </Layout.AnnotatedSection>
 
-        <Layout.AnnotatedSection
-          id="how-it-works"
-          title="How CartGuard decides"
-          description="Every checkout goes through these steps in order. The first rule an order breaks stops it."
-        >
+        <Layout.AnnotatedSection id="how-it-works" title={t("settings.how.title")} description={t("settings.how.description")}>
           <Card>
             <BlockStack gap="300">
               <List type="number">
-                <List.Item>Blocked countries are always stopped, even for trusted customers.</List.Item>
-                <List.Item>Trusted customers who are signed in skip every other rule.</List.Item>
-                <List.Item>Order quantities and the order total are checked against your limits.</List.Item>
-                <List.Item>Delivery addresses are checked for PO Boxes, military addresses, blocked words and specific addresses.</List.Item>
-                <List.Item>Blocked states, cities and postal codes are checked.</List.Item>
+                {DECISION_STEPS.map((step) => (
+                  <List.Item key={step}>{t(step)}</List.Item>
+                ))}
               </List>
               <Text as="p" variant="bodySm" tone="subdued">
-                If CartGuard ever runs into a problem, checkout stays open instead of blocking customers.
+                {t("settings.how.failOpen")}
               </Text>
               <InlineStack>
-                <Button url="/app/rules">Edit block rules</Button>
+                <Button url="/app/rules">{t("settings.how.editRules")}</Button>
               </InlineStack>
             </BlockStack>
           </Card>
         </Layout.AnnotatedSection>
 
-        <Layout.AnnotatedSection id="help" title="Help and privacy" description="Questions, problems or data requests.">
+        <Layout.AnnotatedSection id="help" title={t("settings.help.title")} description={t("settings.help.description")}>
           <Card>
             <BlockStack gap="200">
               <Text as="p">
-                Email <Link url="mailto:support@cartguard.io">support@cartguard.io</Link> for help with CartGuard.
+                {t("settings.help.email", { email: SUPPORT_EMAIL })}
               </Text>
               <Text as="p">
-                Read how CartGuard handles your data in the{" "}
+                {t("settings.help.privacyPrefix")}{" "}
                 <Link url="/privacy" target="_blank">
-                  privacy policy
-                </Link>
-                .
+                  {t("settings.help.privacyLink")}
+                </Link>{" "}
+                {t("settings.help.privacySuffix")}
               </Text>
             </BlockStack>
           </Card>
@@ -160,9 +207,14 @@ export function ErrorBoundary() {
   if (isRouteErrorResponse(error)) return boundary.error(error);
   return (
     <Page title="Settings">
-      <Banner tone="critical" title="CartGuard couldn't load settings" action={{ content: "Try again", onAction: () => window.location.reload() }}>
+      <Banner
+        tone="critical"
+        title="CartGuard couldn't load settings"
+        action={{ content: "Try again", onAction: () => window.location.reload() }}
+      >
         <Text as="p">
-          Shopify didn&apos;t respond or returned an error. Your rules haven&apos;t changed and checkout keeps working. Try again in a moment.
+          Shopify didn&apos;t respond or returned an error. Your rules haven&apos;t changed and checkout keeps working. Try again in a
+          moment.
         </Text>
       </Banner>
     </Page>

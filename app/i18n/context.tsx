@@ -8,18 +8,9 @@
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import polarisEn from "@shopify/polaris/locales/en.json";
-import polarisDe from "@shopify/polaris/locales/de.json";
-import polarisFr from "@shopify/polaris/locales/fr.json";
-import polarisEs from "@shopify/polaris/locales/es.json";
-import polarisPtBR from "@shopify/polaris/locales/pt-BR.json";
-import polarisZhCN from "@shopify/polaris/locales/zh-CN.json";
-import polarisJa from "@shopify/polaris/locales/ja.json";
-import polarisIt from "@shopify/polaris/locales/it.json";
-import polarisNl from "@shopify/polaris/locales/nl.json";
-import polarisSv from "@shopify/polaris/locales/sv.json";
 
 import { DEFAULT_LANGUAGE, type Language } from "./locales";
+import { type PolarisMessages, polarisMessages } from "./polaris-i18n";
 import {
   type MessageKey,
   type TranslateValues,
@@ -31,25 +22,6 @@ import {
   plural,
   translate,
 } from "./catalog";
-
-/**
- * Polaris ships a catalog per admin language, so Polaris' own component strings
- * (the "Cancel" on a button, pagination labels) follow the merchant's choice
- * too. `PolarFeatures` is passed through separately because some of them are
- * language-specific.
- */
-const POLARIS_I18N: Record<Language, Record<string, string>> = {
-  en: polarisEn,
-  de: polarisDe,
-  fr: polarisFr,
-  es: polarisEs,
-  "pt-BR": polarisPtBR,
-  "zh-CN": polarisZhCN,
-  ja: polarisJa,
-  it: polarisIt,
-  nl: polarisNl,
-  sv: polarisSv,
-};
 
 export type I18nContextValue = {
   language: Language;
@@ -63,7 +35,7 @@ export type I18nContextValue = {
   relativeTime: (value: Date | string | number) => string;
   list: (items: readonly string[]) => string;
   /** Polaris' own translations for the active language. */
-  polarisI18n: Record<string, string>;
+  polarisI18n: PolarisMessages;
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -79,7 +51,7 @@ export function I18nProvider({ language, children }: { language: Language; child
       dateTime: (input) => formatDateTime(language, input),
       relativeTime: (input) => formatRelativeTime(language, input),
       list: (items) => formatList(language, items),
-      polarisI18n: POLARIS_I18N[language] ?? POLARIS_I18N[DEFAULT_LANGUAGE],
+      polarisI18n: polarisMessages(language),
     }),
     [language],
   );
@@ -106,5 +78,5 @@ const FALLBACK: I18nContextValue = {
   dateTime: (value) => formatDateTime(DEFAULT_LANGUAGE, value),
   relativeTime: (value) => formatRelativeTime(DEFAULT_LANGUAGE, value),
   list: (items) => formatList(DEFAULT_LANGUAGE, items),
-  polarisI18n: POLARIS_I18N[DEFAULT_LANGUAGE],
+  polarisI18n: polarisMessages(DEFAULT_LANGUAGE),
 };

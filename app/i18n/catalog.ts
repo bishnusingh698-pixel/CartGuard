@@ -65,7 +65,9 @@ export function translate(language: Language, key: MessageKey, values?: Translat
  */
 export function plural(language: Language, forms: Record<Intl.LDMLPluralRule, string>, count: number): string {
   const category = new Intl.PluralRules(language).select(count);
-  return forms[category] ?? forms.other ?? forms.one ?? String(count);
+  const template = forms[category] ?? forms.other ?? forms.one;
+  if (template === undefined) return formatNumber(language, count);
+  return interpolate(template, { count });
 }
 
 /** Localised number, e.g. "1.234" in German and "1,234" in English. */

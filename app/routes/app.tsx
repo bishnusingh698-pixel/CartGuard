@@ -8,6 +8,10 @@ import { Banner, BlockStack, Box, Button, InlineStack, Text } from "@shopify/pol
 import { useEffect } from "react";
 import { authenticate } from "../shopify.server";
 import { canUseMockAdmin } from "../lib/admin-mock.server";
+import { I18nProvider, useI18n } from "../i18n/context";
+import { resolveRequestLanguage } from "../i18n/language.server";
+import { LanguageOnboarding } from "../components/language-picker";
+import type { Language } from "../i18n/locales";
 
 // Minimal stand-in for window.shopify, rendered only in local demo mode
 // (outside the Shopify admin, never in production). In the real admin App
@@ -24,16 +28,18 @@ if (!window.shopify) {
 
 /** Every page in the app. The first one is the home page. */
 const NAV_ITEMS = [
-  { url: "/app", label: "Overview" },
-  { url: "/app/rules", label: "Block rules" },
-  { url: "/app/orders", label: "Order check" },
-  { url: "/app/settings", label: "Settings" },
-];
+  { url: "/app", label: "nav.overview" },
+  { url: "/app/rules", label: "nav.rules" },
+  { url: "/app/orders", label: "nav.orders" },
+  { url: "/app/settings", label: "nav.settings" },
+] as const;
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   let isMock = false;
+  let shop: string | undefined;
   try {
-    await authenticate.admin(request);
+    const context = await authenticate.admin(request);
+    shop = context.session.shop;
   } catch (error) {
     // Auth redirects / bounces must reach the browser. Only a local,
     // non-embedded preview may fall back to demo data.
@@ -43,7 +49,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       throw error;
     }
   }
-  return json({ apiKey: process.env.SHOPIFY_API_KEY ?? "", isMock });
+  // Resolved here rather than read from the root loader because only this
+  // loader knows the authenticated shop. Both calls agree, so `<html lang>`
+  // and the app can never disagree about the language.
+  const { language, chosen, detected } = await resolveRequestLanguage(request, { shop });
+  return json({
+    apiKey: process.env.SHOPIFY_API_KEY ?? "",
+    isMock,
+    language,
+    // Drives the one-time language picker and the Settings notice.
+    languageChosen: chosen,
+    languageDetected: detected,
+  });
 };
 
 export const headers: HeadersFunction = (headersArgs) => {
@@ -74,12 +91,13 @@ function NavigationProgress() {
 function DemoNav() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const { t } = useI18n();
   return (
-    <nav aria-label="CartGuard pages">
+    <nav aria-label={t("nav.label")}>
       <InlineStack gap="200" wrap>
         {NAV_ITEMS.map((item) => (
           <Button key={item.url} pressed={isActive(pathname, item.url)} onClick={() => navigate(item.url)}>
-            {item.label}
+            {t(item.label)}
           </Button>
         ))}
       </InlineStack>
@@ -88,36 +106,65 @@ function DemoNav() {
 }
 
 export default function App() {
-  const { apiKey, isMock } = useLoaderData<typeof loader>();
+  const { apiKey, isMock, language, languageChosen } = useLoaderData<typeof loader>();
 
   return (
     <>
       {isMock && <script dangerouslySetInnerHTML={{ __html: DEMO_APP_BRIDGE_STUB }} />}
-      <AppProvider isEmbeddedApp={!isMock} apiKey={apiKey}>
-        <NavMenu>
-          <Link to="/app" rel="home">
-            Overview
-          </Link>
-          {NAV_ITEMS.slice(1).map((item) => (
-            <Link key={item.url} to={item.url}>
-              {item.label}
-            </Link>
-          ))}
-        </NavMenu>
-        <NavigationProgress />
-        {isMock && (
-          <Box padding="400">
-            <BlockStack gap="300">
-              <Banner tone="info" title="Demo mode">
-                <Text as="p">You&apos;re viewing sample data outside the Shopify admin. Nothing here is saved to a real store.</Text>
-              </Banner>
-              <DemoNav />
-            </BlockStack>
-          </Box>
-        )}
-        <Outlet />
-      </AppProvider>
+      <I18nProvider language={language}>
+        <AdminShell apiKey={apiKey} isMock={isMock} language={language} languageChosen={languageChosen} />
+      </I18nProvider>
     </>
+  );
+}
+
+/**
+ * Inside the provider so the nav and demo banner can translate. Split out only
+ * because `useI18n` needs the provider to already be above it in the tree.
+ *
+ * Polaris gets its catalog from the context, which resolves it from the same
+ * language, so a Polaris button's own "Cancel" is translated too.
+ */
+function AdminShell({
+  apiKey,
+  isMock,
+  language,
+  languageChosen,
+}: {
+  apiKey: string;
+  isMock: boolean;
+  language: Language;
+  languageChosen: boolean;
+}) {
+  const { t, polarisI18n } = useI18n();
+  return (
+    <AppProvider isEmbeddedApp={!isMock} apiKey={apiKey} i18n={polarisI18n}>
+      <NavMenu>
+        <Link to="/app" rel="home">
+          {t("nav.overview")}
+        </Link>
+        {NAV_ITEMS.slice(1).map((item) => (
+          <Link key={item.url} to={item.url}>
+            {t(item.label)}
+          </Link>
+        ))}
+      </NavMenu>
+      <NavigationProgress />
+      {isMock && (
+        <Box padding="400">
+          <BlockStack gap="300">
+            <Banner tone="info" title={t("demo.title")}>
+              <Text as="p">{t("demo.body")}</Text>
+            </Banner>
+            <DemoNav />
+          </BlockStack>
+        </Box>
+      )}
+      <Outlet />
+      {/* Shown once. Answering it, including skipping, stamps the shop's
+          preference so it does not reappear on the next page load. */}
+      {!languageChosen && <LanguageOnboarding detectedLanguage={language} />}
+    </AppProvider>
   );
 }
 

@@ -1,3 +1,29 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * First-launch language picker. Plain CSS rather than Tailwind utilities because
+ * these rules wrap a Polaris Card: the Card supplies its own shadow and radius,
+ * and mixing a Tailwind shadow onto it fights the component.
+ */
+.cg-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--p-space-4);
+  background: rgb(var(--p-color-slate-900) / 55%);
+}
+
+.cg-modal {
+  width: 100%;
+  max-width: 26rem;
+}
+
+/* Polaris renders Card's shadow, so the dialog must not add a second one. */
+.cg-modal > div {
+  box-shadow: none;
+}

@@ -103,12 +103,18 @@ describe("translating", () => {
   });
 
   it("interpolates placeholders", () => {
-    expect(translate("en", "common.remove", { value: "Canada" })).toBe("Remove Canada");
+    expect(translate("en", "list.chip.remove", { value: "Canada" })).toBe("Remove Canada");
     expect(translate("en", "hero.protected.body", { rules: "address rules" })).toContain("address rules");
   });
 
   it("leaves an unknown placeholder visible rather than printing undefined", () => {
-    expect(translate("en", "common.remove", { nope: "x" })).toBe("Remove {value}");
+    expect(translate("en", "list.chip.remove", { nope: "x" })).toBe("Remove {value}");
+  });
+
+  it("never interpolates a placeholder a catalog did not declare", () => {
+    // `{email}` appears inside a German sentence for a different reason, so a
+    // value for it must be passed through, never assumed.
+    expect(translate("de", "settings.help.email", {})).toContain("{email}");
   });
 });
 
