@@ -138,16 +138,23 @@ function AdminShell({
   const { t, polarisI18n } = useI18n();
   return (
     <AppProvider isEmbeddedApp={!isMock} apiKey={apiKey} i18n={polarisI18n}>
-      <NavMenu>
-        <Link to="/app" rel="home">
-          {t("nav.overview")}
-        </Link>
-        {NAV_ITEMS.slice(1).map((item) => (
-          <Link key={item.url} to={item.url}>
-            {t(item.label)}
+      {/* Only inside the admin. `NavMenu` is an App Bridge component: it
+          registers links with the Shopify admin's sidebar, and with no App
+          Bridge running (the demo preview) it renders its children as plain
+          unstyled anchors, dumping a second copy of the navigation above the
+          demo one. DemoNav below is the standalone replacement. */}
+      {!isMock && (
+        <NavMenu>
+          <Link to="/app" rel="home">
+            {t("nav.overview")}
           </Link>
-        ))}
-      </NavMenu>
+          {NAV_ITEMS.slice(1).map((item) => (
+            <Link key={item.url} to={item.url}>
+              {t(item.label)}
+            </Link>
+          ))}
+        </NavMenu>
+      )}
       <NavigationProgress />
       {isMock && (
         <Box padding="400">

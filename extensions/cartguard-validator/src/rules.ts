@@ -686,7 +686,10 @@ type CompiledAddressRule = {
 };
 
 function describeRule(rule: RegexRule): string {
-  if (rule.preset && rule.preset in ADDRESS_PRESETS) {
+  // `Object.hasOwn` rather than `in`: `preset` comes from merchant-editable
+  // JSON, and `in` also answers true for `constructor`, `toString` and
+  // `__proto__`, which would then be read off the prototype chain as presets.
+  if (rule.preset && Object.hasOwn(ADDRESS_PRESETS, rule.preset)) {
     return ADDRESS_PRESETS[rule.preset as AddressPreset].label;
   }
   if (rule.preset === "keywords") return "blocked keyword rule";

@@ -57,10 +57,15 @@ const isSupported = (value: string): value is Language => (SUPPORTED_LANGUAGES a
  * Admin locales that are not shipped map onto the closest language we do have,
  * so a merchant whose admin is in Danish or Polish still sees translated
  * copy rather than a raw key.
+ *
+ * Null prototype: this table is indexed with attacker-controlled strings from
+ * `?locale=`, and a normal object literal would answer `ALIASES["constructor"]`
+ * with the `Object` constructor — a function that is truthy, so it would sail
+ * through every `if (language)` guard downstream and reach the database.
  */
-const ALIASES: Record<string, Language> = {
+const ALIASES: Record<string, Language> = Object.assign(Object.create(null) as Record<string, Language>, {
   "pt-pt": "pt-BR",
-  "pt": "pt-BR",
+  pt: "pt-BR",
   zh: "zh-CN",
   "zh-hans": "zh-CN",
   "zh-sg": "zh-CN",
@@ -75,7 +80,7 @@ const ALIASES: Record<string, Language> = {
   tr: "fr",
   th: "ja",
   vi: "ja",
-};
+});
 
 /**
  * Turns anything the admin, a URL or a browser might send us into a language
@@ -83,19 +88,32 @@ const ALIASES: Record<string, Language> = {
  * unknown falls back to English.
  */
 export function normalizeLanguage(raw: string | null | undefined): Language | null {
-  if (!raw) return null;
+  if (typeof raw !== "string") return null;
   const tag = raw.trim().replace(/_/g, "-");
   if (!tag) return null;
 
   if (isSupported(tag)) return tag;
 
-  const exact = ALIASES[tag] ?? ALIASES[tag.toLowerCase()];
+  const exact = lookupAlias(tag);
   if (exact) return exact;
 
   const base = tag.split("-")[0];
   const lowered = base.toLowerCase();
   if (isSupported(lowered)) return lowered;
-  return ALIASES[lowered] ?? null;
+  return lookupAlias(lowered);
+}
+
+/**
+ * Reads the alias table without ever returning anything that is not a Language.
+ *
+ * The `isSupported` re-check is deliberate belt-and-braces: every caller treats
+ * a truthy result as a valid language and persists it, so this function is the
+ * single place that decides what is allowed in, and it must be impossible for a
+ * stray prototype key to widen that.
+ */
+function lookupAlias(tag: string): Language | null {
+  const exact = ALIASES[tag] ?? ALIASES[tag.toLowerCase()];
+  return isSupported(exact) ? exact : null;
 }
 
 /** Like `normalizeLanguage`, but always returns something usable. */

@@ -20,7 +20,7 @@ import prisma from "../db.server";
 import { DEFAULT_LANGUAGE, type Language, normalizeLanguage, pickLanguage, resolveLanguage } from "./locales";
 
 export type ResolvedLanguage = {
-  /** The language the app should render in. */
+  /** The language the app should render in. Always one CartGuard ships. */
   language: Language;
   /** True once the merchant has answered the first-launch picker, either way. */
   chosen: boolean;
