@@ -666,6 +666,10 @@ type OrdersQueryResult = {
 export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promise<ImpactResult> {
   const orders: OrderNode[] = [];
   let after: string | null = null;
+  // Shopify can return the same cursor again (a buggy pageInfo, or a cursor it
+  // did not advance). The loop is bounded by orders scanned, so a page that
+  // yields no nodes would otherwise spin until the budget check or forever.
+  const seenCursors = new Set<string>();
   while (orders.length < IMPACT_MAX_ORDERS) {
     const queryResult: { data: OrdersQueryResult; cost?: GraphqlCost } = await adminGraphql<OrdersQueryResult>(
       admin,
@@ -673,9 +677,13 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
       { first: IMPACT_PAGE_SIZE, after },
     );
     const page: OrdersQueryResult["orders"] = queryResult.data.orders;
-    orders.push(...(page?.nodes ?? []));
-    if (!page?.pageInfo?.hasNextPage || !page.pageInfo.endCursor) break;
-    after = page.pageInfo.endCursor;
+    const nodes = page?.nodes ?? [];
+    orders.push(...nodes);
+    const cursor = page?.pageInfo?.endCursor ?? null;
+    if (!page?.pageInfo?.hasNextPage || !cursor) break;
+    if (seenCursors.has(cursor) || nodes.length === 0) break;
+    seenCursors.add(cursor);
+    after = cursor;
     const available = queryResult.cost?.throttleStatus?.currentlyAvailable;
     if (typeof available === "number" && available < IMPACT_MIN_BUDGET) break;
   }
