@@ -388,9 +388,34 @@ describe("minimum and maximum limits", () => {
   });
 
   it("uses the tightest amount bound when several limits set one", () => {
+    // The product carries the `bulk` tag, so both limits apply to it and the
+    // tighter one (100) has to win over the general 5000.
+    const bulkLine = { email: null, addresses: [], lines: [{ index: 0, productId: "gid://shopify/Product/1", quantity: 1, tags: ["bulk"], unitPrice: 300 }] };
     const rules = config({ quantityLimits: { all: { maxAmount: 5000 }, bulk: { maxAmount: 100 } } });
-    expect(evaluateCart(line(1, 300), rules)).toHaveLength(1);
-    expect(evaluateCart(line(1, 300), config({ quantityLimits: { all: { maxAmount: 5000 } } }))).toHaveLength(0);
+    expect(evaluateCart(bulkLine, rules)).toHaveLength(1);
+    expect(evaluateCart(bulkLine, config({ quantityLimits: { all: { maxAmount: 5000 } } }))).toHaveLength(0);
+  });
+
+  it("ignores an amount bound on a limit the cart does not match", () => {
+    // An amount bound only has meaning for limits it applies to. The editor
+    // offers these fields on the "Every product" row, so a bound attached to a
+    // tag or product that is not in the cart is legacy or hand-edited data --
+    // it must not block an unrelated order, and the tightest *matching* bound
+    // is the only one that counts.
+    const cheap = line(1, 20);
+    expect(evaluateCart(cheap, config({ quantityLimits: { bulk: { minAmount: 50 } } }))).toHaveLength(0);
+    expect(evaluateCart(cheap, config({ quantityLimits: { premium: { maxAmount: 5 } } }))).toHaveLength(0);
+
+    // An unrelated high minimum must not override a matching general one.
+    const mixed = config({ quantityLimits: { all: { minAmount: 10 }, premium: { minAmount: 9000 } } });
+    expect(evaluateCart(cheap, mixed)).toHaveLength(0);
+
+    // The global row still gates the whole order.
+    expect(evaluateCart(cheap, config({ quantityLimits: { all: { minAmount: 50 } } }))).toHaveLength(1);
+
+    // And a matching tag still applies.
+    const tagged = { email: null, addresses: [], lines: [{ index: 0, productId: "gid://shopify/Product/1", quantity: 1, tags: ["Bulk"], unitPrice: 20 }] };
+    expect(evaluateCart(tagged, config({ quantityLimits: { bulk: { minAmount: 50 } } }))).toHaveLength(1);
   });
 
   it("never blocks on a cart with no prices at all", () => {

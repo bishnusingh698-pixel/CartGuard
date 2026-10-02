@@ -553,16 +553,20 @@ function isVipCustomer(cart: CartInput, vip: VipLists): boolean {
   return Boolean(email) && vip.emails.has(email);
 }
 
-function evaluateQuantityLimits(cart: CartInput, limits: Record<string, QuantityLimit>): Violation[] {
-  const entries = Object.entries(limits);
-  if (entries.length === 0) return [];
+/**
+ * Per-product view of the cart: total units of one product across all of its
+ * lines (a product appears once per variant), plus its tags, and the index of
+ * the line to blame for a violation.
+ */
+type ProductAggregate = { productId: string; quantity: number; tags: Set<string>; firstIndex: number };
 
-  // A product can appear on several lines (one per variant): aggregate them.
-  const products = new Map<string, { quantity: number; tags: Set<string>; firstIndex: number }>();
+function aggregateProducts(cart: CartInput): Map<string, ProductAggregate> {
+  const products = new Map<string, ProductAggregate>();
   for (const line of cart.lines) {
     if (!line.productId) continue;
     const quantity = Number.isFinite(line.quantity) && line.quantity > 0 ? line.quantity : 0;
     const aggregate = products.get(line.productId) ?? {
+      productId: line.productId,
       quantity: 0,
       tags: new Set<string>(),
       firstIndex: line.index,
@@ -571,6 +575,28 @@ function evaluateQuantityLimits(cart: CartInput, limits: Record<string, Quantity
     for (const tag of line.tags) aggregate.tags.add(tag.trim().toLowerCase());
     products.set(line.productId, aggregate);
   }
+  return products;
+}
+
+/** The limits that apply to at least one product in the cart. */
+function matchingLimitEntries(cart: CartInput, limits: Record<string, QuantityLimit>): Array<[string, QuantityLimit]> {
+  const entries = Object.entries(limits);
+  if (entries.length === 0) return [];
+  const products = aggregateProducts(cart);
+  return entries.filter(([key]) => {
+    if (isGlobalKey(key)) return true;
+    for (const product of products.values()) {
+      if (limitMatches(key, product.productId, product.tags)) return true;
+    }
+    return false;
+  });
+}
+
+function evaluateQuantityLimits(cart: CartInput, limits: Record<string, QuantityLimit>): Violation[] {
+  const entries = Object.entries(limits);
+  if (entries.length === 0) return [];
+
+  const products = aggregateProducts(cart);
 
   const violations: Violation[] = [];
   for (const [productId, aggregate] of products) {
@@ -624,10 +650,23 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** Collects the amount bounds from every limit, keeping the tightest of each. */
-export function amountBounds(limits: Record<string, QuantityLimit>): AmountLimits {
+/**
+ * Collects the order-total bounds that actually apply to this cart, keeping the
+ * tightest of each.
+ *
+ * Only limits whose key matches something in the cart count. A limit is scoped
+ * to a product tag or a product ID, and a rule the cart does not match cannot
+ * decide the fate of an unrelated order: `premium: { minAmount: 900 }` must not
+ * block a $10 order of ordinary products. The editor only offers these fields on
+ * the "Every product" row, so any other key carrying an amount bound is legacy
+ * or hand-edited metafield data, and it stays inert rather than becoming a
+ * store-wide blocker.
+ */
+export function amountBounds(cart: CartInput, limits: Record<string, QuantityLimit>): AmountLimits {
+  const matching = matchingLimitEntries(cart, limits);
+  if (matching.length === 0) return {};
   const bounds: AmountLimits = {};
-  for (const limit of Object.values(limits)) {
+  for (const [, limit] of matching) {
     if (limit.minAmount !== undefined && (bounds.min === undefined || limit.minAmount > bounds.min)) {
       bounds.min = limit.minAmount;
     }
@@ -648,7 +687,7 @@ function formatMoney(amount: number, currencyCode: string | null | undefined): s
 }
 
 function evaluateOrderAmount(cart: CartInput, limits: Record<string, QuantityLimit>): Violation[] {
-  const { min, max } = amountBounds(limits);
+  const { min, max } = amountBounds(cart, limits);
   if (min === undefined && max === undefined) return [];
   const total = cartTotal(cart);
   // Without a trustworthy total there is nothing to compare, and a checkout
