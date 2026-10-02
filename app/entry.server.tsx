@@ -22,6 +22,10 @@ export default async function handleRequest(
 
     const sendResponse = () => {
       shellRendered = true;
+      // Cleared here as well as in onAllReady: on the streaming path the shell
+      // is sent from onShellReady and onAllReady may never arrive, which would
+      // leave the timer to abort a render that has already been handed off.
+      clearTimeout(abortTimer);
       const body = new PassThrough();
       const stream = createReadableStreamFromReadable(body);
       responseHeaders.set("Content-Type", "text/html");
