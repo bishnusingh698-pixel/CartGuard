@@ -1,16 +1,13 @@
 {
   "app.name": "CartGuard",
   "app.tagline": "Fraud prevention and cart validation rules enforced at checkout.",
-
   "nav.label": "CartGuard pages",
   "nav.overview": "Overview",
   "nav.rules": "Block rules",
   "nav.orders": "Order check",
   "nav.settings": "Settings",
-
   "demo.title": "Demo mode",
   "demo.body": "You're viewing sample data outside the Shopify admin. Nothing here is saved to a real store.",
-
   "common.on": "On",
   "common.off": "Off",
   "common.unknown": "Unknown",
@@ -31,13 +28,11 @@
   "common.setUp": "Set up",
   "common.supportEmail": "support@cartguard.io",
   "common.shopifyUnresponsive": "Shopify didn't respond or returned an error. Your rules haven't changed and checkout keeps working. Try again in a moment.",
-
   "status.badge.off": "Off",
   "status.badge.empty": "Nothing added yet",
   "status.badge.active": "Active",
   "status.text.off": "Off. Orders aren't checked for this.",
   "status.text.empty": "On, but nothing is added yet, so nothing is blocked.",
-
   "errors.notFound.title": "Page not found",
   "errors.notFound.body": "This page doesn't exist. Open CartGuard from your Shopify admin to get back to your checkout rules.",
   "errors.generic.title": "Something went wrong",
@@ -54,13 +49,13 @@
   "errors.shopLoadFailed": "Unable to load the shop from Shopify.",
   "errors.shopLoadFailedHint": "Reload the page and try again.",
   "errors.functionNotInstalled": "CartGuard's checkout protection isn't installed on your store yet. Wait a few minutes and save again. If it keeps happening, reinstall CartGuard or contact support@cartguard.io.",
-
   "language.fieldLabel": "Language",
   "language.switcherLabel": "App language",
   "language.title": "Language",
   "language.description": "Choose the language CartGuard uses in the admin. This doesn't change the language of your storefront or checkout.",
   "language.saved": "Language updated.",
   "language.saveFailed": "Your language couldn't be saved. Try again in a moment.",
+  "language.demoNotice": "This is a preview with sample data, so your language cannot be saved here. Choose a language in Settings once the app is installed.",
   "language.useAdminLocale": "Use my Shopify admin language",
   "language.detected": "Detected from your Shopify admin",
   "language.stepTitle": "Choose your language",
@@ -70,7 +65,6 @@
   "language.step": "Step {current} of {total}",
   "language.onboardingTitle": "Welcome to CartGuard",
   "language.onboardingDescription": "Let's get CartGuard set up in your language first. You can skip this and change it any time in Settings.",
-
   "overview.title": "Overview",
   "overview.subtitle": "CartGuard stops risky and undeliverable orders before checkout completes.",
   "overview.editRules": "Edit block rules",
@@ -106,7 +100,6 @@
   "overview.help.title": "Need help?",
   "overview.help.body": "Learn {link} which orders to stop, or email {email}.",
   "overview.help.link": "how CartGuard decides",
-
   "settings.title": "Settings",
   "settings.migration.title": "Your rules aren't applied at checkout yet",
   "settings.migration.body": "They were saved by an older version of CartGuard. Save them once on the Block rules page to apply them.",
@@ -137,7 +130,6 @@
   "settings.help.privacyPrefix": "Read how CartGuard handles your data in the",
   "settings.help.privacyLink": "privacy policy",
   "settings.help.privacySuffix": ", how CartGuard handles your data.",
-
   "section.geo.title": "Countries and regions",
   "section.geo.description": "Block orders shipping to countries, states, cities or postal codes you don't deliver to.",
   "section.geo.anchor": "countries-and-regions",
@@ -154,7 +146,6 @@
   "section.turnOff": "Turn off",
   "section.toggleLabel": "{action} {section}",
   "section.offButInvalid.title": "This section is off, but some of its entries need fixing before you can save.",
-
   "rules.title": "Block rules",
   "rules.subtitle": "Choose which orders CartGuard stops at checkout.",
   "rules.unsaved": "Unsaved changes",
@@ -190,7 +181,6 @@
   "rules.simulateFailed": "The test didn't finish.",
   "rules.impactFailed": "We couldn't test these rules on your recent orders. {reason} You can still save them.",
   "rules.impactLimited": "Checks up to 40 products per order. Nothing was changed.",
-
   "fields.countries.label": "Block orders shipping to these countries",
   "fields.countries.help": "This also applies to trusted customers.",
   "fields.countries.empty": "No countries blocked.",
@@ -203,7 +193,6 @@
   "fields.countries.pasteLabel": "Paste a list of countries",
   "fields.countries.pasteHelp": "Separate names or 2-letter codes with commas, for example: Kazakhstan, CR, Russia.",
   "fields.countries.anyCountry": "Any country",
-
   "fields.states.label": "Block orders shipping to these states or provinces",
   "fields.states.help": "Choose from the list for the United States, Canada and Australia. For any other country, choose Another country and enter the region code Shopify shows on its orders.",
   "fields.states.empty": "No states or provinces blocked.",
@@ -219,39 +208,33 @@
   "fields.states.needCountry": "Choose a country first.",
   "fields.states.duplicate": "That's already on the list.",
   "fields.states.otherHelp": "Use the region code Shopify shows on the order's shipping address, such as 13 for Tokyo in Japan. Some countries, like the United Kingdom, have no region on Shopify addresses. For those, block a city or postal code below instead.",
-
   "fields.cities.label": "Block orders shipping to these cities",
   "fields.cities.help": "Capitals, accents and punctuation don't matter. Separate several with commas.",
   "fields.cities.empty": "No cities blocked.",
   "fields.cities.listName": "blocked cities",
   "fields.cities.placeholder": "San José",
   "fields.cities.scope": "Country for new cities",
-
   "fields.zips.label": "Block orders shipping to these postal codes",
   "fields.zips.help": "Spaces and dashes don't matter, and US ZIP+4 codes match their 5-digit ZIP. Separate several with commas.",
   "fields.zips.empty": "No postal codes blocked.",
   "fields.zips.listName": "blocked postal codes",
   "fields.zips.placeholder": "90210",
   "fields.zips.scope": "Country for new postal codes",
-
   "fields.keywords.label": "Block addresses containing these words",
   "fields.keywords.help": "For example \"mail drop\" or \"warehouse 4B\". Capitals and accents don't matter.",
   "fields.keywords.placeholder": "mail drop",
   "fields.keywords.empty": "No blocked words.",
   "fields.keywords.listName": "blocked words",
-
   "fields.vipEmails.label": "Trusted customer emails",
   "fields.vipEmails.help": "Customers signed in with these account emails skip every rule except blocked countries. Guests who just type the email don't.",
   "fields.vipEmails.placeholder": "customer@example.com",
   "fields.vipEmails.empty": "No trusted emails.",
   "fields.vipEmails.listName": "trusted emails",
-
   "fields.vipAddresses.label": "Trusted street addresses",
   "fields.vipAddresses.help": "Must match address line 1 exactly. Only skips the address checks, not quantity limits or blocked areas.",
   "fields.vipAddresses.placeholder": "123 Executive Blvd",
   "fields.vipAddresses.empty": "No trusted addresses.",
   "fields.vipAddresses.listName": "trusted addresses",
-
   "list.chip.remove": "Remove {value}",
   "list.removeAll": "Remove all {label}",
   "list.showAll": "Show all {count}",
@@ -260,7 +243,6 @@
   "list.duplicateOne": "That's already on the list.",
   "list.duplicateMany": "Skipped {count} already on the list.",
   "list.rejected": "{count} entries weren't added. {reason}",
-
   "address.risky.title": "Common risky addresses",
   "address.poBox.label": "Block PO Boxes",
   "address.poBox.help": "Catches P.O. Box, Post Office Box, Apartado Postal and Postfach, including common misspellings.",
@@ -286,7 +268,6 @@
   "address.cityPlaceholder": "Leave blank for every city",
   "address.messageLabel": "Message customers see (optional)",
   "address.defaultMessage": "We can't deliver to this address. Please enter a different delivery address or contact us for help.",
-
   "quantity.empty": "No limits yet. Add one to cap how many units a customer can buy in one order.",
   "quantity.add": "Add a limit",
   "quantity.row.title": "Limit {index}",
@@ -310,7 +291,6 @@
   "quantity.placeholderProduct": "1234567890",
   "quantity.placeholderAmount": "250",
   "quantity.messageLabel": "Message customers see (optional)",
-
   "orders.title": "Order check",
   "orders.subtitle": "See which of your recent orders your saved block rules would stop, and why.",
   "orders.run": "Run check",
@@ -338,15 +318,12 @@
   "orders.footnoteChecked": "Checked {date}. ",
   "orders.noAddress": "No shipping address",
   "orders.lessThanOnePercent": "less than 1%",
-
   "impact.blocked": "{count} of your recent orders would be stopped.",
   "impact.sample": "For example: {examples}",
-
   "login.title": "Log in to CartGuard",
   "login.shopLabel": "Shop domain",
   "login.shopHelp": "For example: my-shop-domain.myshopify.com",
   "login.submit": "Log in",
-
   "validation.countryUnknown": "We don't recognise \"{value}\" as a country. Pick it from the list or use its 2-letter code, like CR.",
   "validation.regionCode": "Region codes are up to 6 letters or numbers, like 13, MH or TAMPS.",
   "validation.city": "\"{value}\" doesn't look like a city name.",
@@ -381,7 +358,6 @@
   "validation.limitNeedsTarget": "Every quantity limit needs a product tag, a product ID or Every product.",
   "validation.addressMessageTooLong": "{label} has a customer message longer than {max} characters.",
   "validation.quantityMessageTooLong": "{label}: keep the customer message under {max} characters.",
-
   "summary.everyProduct": "Every product",
   "summary.product": "Product {id}",
   "summary.tagged": "Products tagged \"{tag}\"",
@@ -409,7 +385,6 @@
   "summary.count.streetMany": "{count} street addresses",
   "summary.count.fieldOne": "{count} field",
   "summary.count.fieldMany": "{count} fields",
-
   "violation.ruleLabel.po_box": "PO Box rule",
   "violation.ruleLabel.military": "military address rule",
   "violation.ruleLabel.keywords": "blocked keyword rule",
@@ -424,7 +399,6 @@
   "violation.detail.quantityMin": "{quantity} units are below the minimum of {min} for {target}",
   "violation.detail.amountMax": "order total {total} is above the maximum of {max}",
   "violation.detail.amountMin": "order total {total} is below the minimum of {min}",
-
   "privacy.title": "CartGuard Privacy Policy",
   "privacy.effectiveDate": "Effective date: {date}",
   "privacy.overview.heading": "1. Overview",

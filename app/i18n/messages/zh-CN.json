@@ -1,16 +1,13 @@
 {
   "app.name": "CartGuard",
   "app.tagline": "在结账环节强制执行防欺诈和购物车校验规则。",
-
   "nav.label": "CartGuard 页面",
   "nav.overview": "概览",
   "nav.rules": "拦截规则",
   "nav.orders": "订单检查",
   "nav.settings": "设置",
-
   "demo.title": "演示模式",
   "demo.body": "您正在 Shopify 后台之外查看示例数据。此处的内容不会保存到真实店铺。",
-
   "common.on": "开启",
   "common.off": "关闭",
   "common.unknown": "未知",
@@ -31,13 +28,11 @@
   "common.setUp": "设置",
   "common.supportEmail": "support@cartguard.io",
   "common.shopifyUnresponsive": "Shopify 没有响应或返回了错误。您的规则未发生更改，结账功能仍然可用。请稍后重试。",
-
   "status.badge.off": "关闭",
   "status.badge.empty": "尚未添加内容",
   "status.badge.active": "生效中",
   "status.text.off": "已关闭。不会按此规则检查订单。",
   "status.text.empty": "已开启，但尚未添加任何内容，因此不会拦截任何订单。",
-
   "errors.notFound.title": "找不到页面",
   "errors.notFound.body": "此页面不存在。请从 Shopify 后台打开 CartGuard，以返回您的结账规则。",
   "errors.generic.title": "出现问题",
@@ -54,13 +49,13 @@
   "errors.shopLoadFailed": "无法从 Shopify 加载店铺。",
   "errors.shopLoadFailedHint": "请重新加载页面后重试。",
   "errors.functionNotInstalled": "CartGuard 的结账保护尚未安装到您的店铺。请等待几分钟后再次保存。若问题持续存在，请重新安装 CartGuard 或联系 support@cartguard.io。",
-
   "language.fieldLabel": "语言",
   "language.switcherLabel": "应用语言",
   "language.title": "语言",
   "language.description": "选择 CartGuard 在后台显示的语言。这不会更改您在线商店或结账页面的语言。",
   "language.saved": "语言已更新。",
   "language.saveFailed": "无法保存您的语言。请稍后重试。",
+  "language.demoNotice": "当前为示例数据的预览环境，无法保存语言设置。安装应用后请在设置中选择语言。",
   "language.useAdminLocale": "使用我的 Shopify 后台语言",
   "language.detected": "根据您的 Shopify 后台自动识别",
   "language.stepTitle": "选择您的语言",
@@ -70,7 +65,6 @@
   "language.step": "第 {current} 步，共 {total} 步",
   "language.onboardingTitle": "欢迎使用 CartGuard",
   "language.onboardingDescription": "我们先用您的语言设置 CartGuard。您可以跳过此步骤，并随时在“设置”中更改。",
-
   "overview.title": "概览",
   "overview.subtitle": "CartGuard 会在结账完成前拦截有风险或无法送达的订单。",
   "overview.editRules": "编辑拦截规则",
@@ -106,7 +100,6 @@
   "overview.help.title": "需要帮助？",
   "overview.help.body": "了解{link}以知道会拦截哪些订单，或发送邮件至{email}。",
   "overview.help.link": "CartGuard 如何做出判断",
-
   "settings.title": "设置",
   "settings.migration.title": "您的规则尚未在结账时生效",
   "settings.migration.body": "这些规则由旧版 CartGuard 保存。请在“拦截规则”页面保存一次以使其生效。",
@@ -137,7 +130,6 @@
   "settings.help.privacyPrefix": "请阅读我们的",
   "settings.help.privacyLink": "隐私政策",
   "settings.help.privacySuffix": "，了解 CartGuard 如何处理您的数据。",
-
   "section.geo.title": "国家和地区",
   "section.geo.description": "拦截配送至您不发货的国家、州、省、市或邮编的订单。",
   "section.geo.anchor": "countries-and-regions",
@@ -154,7 +146,6 @@
   "section.turnOff": "关闭",
   "section.toggleLabel": "{action}{section}",
   "section.offButInvalid.title": "此部分已关闭，但其中某些条目需要修正后才能保存。",
-
   "rules.title": "拦截规则",
   "rules.subtitle": "选择 CartGuard 在结账时拦截哪些订单。",
   "rules.unsaved": "有未保存的更改",
@@ -190,7 +181,6 @@
   "rules.simulateFailed": "测试未完成。",
   "rules.impactFailed": "我们无法用您的近期订单测试这些规则。{reason}您仍然可以保存。",
   "rules.impactLimited": "每个订单最多检查 40 件商品。未做任何更改。",
-
   "fields.countries.label": "拦截配送至以下国家的订单",
   "fields.countries.help": "此规则同样适用于可信客户。",
   "fields.countries.empty": "未屏蔽任何国家。",
@@ -203,7 +193,6 @@
   "fields.countries.pasteLabel": "粘贴国家列表",
   "fields.countries.pasteHelp": "用逗号分隔国家名称或两位代码，例如：哈萨克斯坦、CR、俄罗斯。",
   "fields.countries.anyCountry": "任意国家",
-
   "fields.states.label": "拦截配送至以下州或省的订单",
   "fields.states.help": "美国、加拿大和澳大利亚可直接从列表中选择。对于其他国家，请选择“其他国家”，并输入 Shopify 在订单中显示的地区代码。",
   "fields.states.empty": "未屏蔽任何州或省。",
@@ -219,39 +208,33 @@
   "fields.states.needCountry": "请先选择国家。",
   "fields.states.duplicate": "该项已在列表中。",
   "fields.states.otherHelp": "请使用 Shopify 在订单收货地址中显示的地区代码，例如日本的东京为 13。有些国家（如英国）在 Shopify 地址中没有地区信息。对于这些国家，请在下方屏蔽城市或邮编。",
-
   "fields.cities.label": "拦截配送至以下城市的订单",
   "fields.cities.help": "大小写、重音符号和标点都不影响匹配。多个值请用逗号分隔。",
   "fields.cities.empty": "未屏蔽任何城市。",
   "fields.cities.listName": "已屏蔽的城市",
   "fields.cities.placeholder": "San José",
   "fields.cities.scope": "新城市的所属国家",
-
   "fields.zips.label": "拦截配送至以下邮编的订单",
   "fields.zips.help": "空格和连字符都不影响匹配，美国 ZIP+4 代码会匹配其 5 位 ZIP。多个值请用逗号分隔。",
   "fields.zips.empty": "未屏蔽任何邮编。",
   "fields.zips.listName": "已屏蔽的邮编",
   "fields.zips.placeholder": "90210",
   "fields.zips.scope": "新邮编的所属国家",
-
   "fields.keywords.label": "拦截包含以下词语的地址",
   "fields.keywords.help": "例如“mail drop”或“warehouse 4B”。大小写和重音符号都不影响匹配。",
   "fields.keywords.placeholder": "mail drop",
   "fields.keywords.empty": "未屏蔽任何词语。",
   "fields.keywords.listName": "已屏蔽的词语",
-
   "fields.vipEmails.label": "可信客户邮箱",
   "fields.vipEmails.help": "使用这些账户邮箱登录的客户会跳过所有规则，但被屏蔽的国家除外。仅输入邮箱的访客则不适用。",
   "fields.vipEmails.placeholder": "customer@example.com",
   "fields.vipEmails.empty": "没有可信邮箱。",
   "fields.vipEmails.listName": "可信邮箱",
-
   "fields.vipAddresses.label": "可信收货地址",
   "fields.vipAddresses.help": "必须与地址第一行完全一致。仅跳过地址检查，不跳过数量限制或被屏蔽的地区。",
   "fields.vipAddresses.placeholder": "123 Executive Blvd",
   "fields.vipAddresses.empty": "没有可信地址。",
   "fields.vipAddresses.listName": "可信地址",
-
   "list.chip.remove": "移除 {value}",
   "list.removeAll": "移除所有{label}",
   "list.showAll": "显示全部 {count} 项",
@@ -260,7 +243,6 @@
   "list.duplicateOne": "该项已在列表中。",
   "list.duplicateMany": "已跳过 {count} 个列表中已有的项目。",
   "list.rejected": "有 {count} 条未添加。{reason}",
-
   "address.risky.title": "常见高风险地址",
   "address.poBox.label": "拦截邮政信箱",
   "address.poBox.help": "可识别 P.O. Box、Post Office Box、Apartado Postal 和 Postfach，包括常见的拼写错误。",
@@ -286,7 +268,6 @@
   "address.cityPlaceholder": "留空表示所有城市",
   "address.messageLabel": "客户看到的提示（可选）",
   "address.defaultMessage": "我们无法配送到此地址。请填写其他收货地址或联系我们。",
-
   "quantity.empty": "尚无限制。添加一个即可限制客户在单个订单中可购买的数量。",
   "quantity.add": "添加限制",
   "quantity.row.title": "限制 {index}",
@@ -310,7 +291,6 @@
   "quantity.placeholderProduct": "1234567890",
   "quantity.placeholderAmount": "250",
   "quantity.messageLabel": "客户看到的提示（可选）",
-
   "orders.title": "订单检查",
   "orders.subtitle": "看看您已保存的拦截规则会拦截哪些近期订单，以及原因。",
   "orders.run": "开始检查",
@@ -338,15 +318,12 @@
   "orders.footnoteChecked": "检查于 {date}。",
   "orders.noAddress": "无收货地址",
   "orders.lessThanOnePercent": "少于 1%",
-
   "impact.blocked": "您最近的订单中有 {count} 笔会被拦截。",
   "impact.sample": "例如：{examples}",
-
   "login.title": "登录 CartGuard",
   "login.shopLabel": "店铺域名",
   "login.shopHelp": "例如：my-shop-domain.myshopify.com",
   "login.submit": "登录",
-
   "validation.countryUnknown": "我们无法将“{value}”识别为国家。请从列表中选择，或使用两位国家代码，例如 CR。",
   "validation.regionCode": "地区代码最多由 6 个字母或数字组成，例如 13、MH 或 TAMPS。",
   "validation.city": "“{value}”看起来不像城市名称。",
@@ -381,7 +358,6 @@
   "validation.limitNeedsTarget": "每个数量限制都需要商品标签、商品 ID 或“所有商品”。",
   "validation.addressMessageTooLong": "{label} 的客户提示超过 {max} 个字符。",
   "validation.quantityMessageTooLong": "{label}：请将客户提示控制在 {max} 个字符以内。",
-
   "summary.everyProduct": "所有商品",
   "summary.product": "商品 {id}",
   "summary.tagged": "带有“{tag}”标签的商品",
@@ -409,7 +385,6 @@
   "summary.count.streetMany": "{count} 个收货地址",
   "summary.count.fieldOne": "{count} 个字段",
   "summary.count.fieldMany": "{count} 个字段",
-
   "violation.ruleLabel.po_box": "邮政信箱规则",
   "violation.ruleLabel.military": "军事地址规则",
   "violation.ruleLabel.keywords": "屏蔽词规则",
@@ -424,7 +399,6 @@
   "violation.detail.quantityMin": "{quantity} 件低于 {target} 的 {min} 件下限",
   "violation.detail.amountMax": "订单总额 {total} 超过上限 {max}",
   "violation.detail.amountMin": "订单总额 {total} 低于下限 {min}",
-
   "privacy.title": "CartGuard 隐私政策",
   "privacy.effectiveDate": "生效日期：{date}",
   "privacy.overview.heading": "1. 概述",

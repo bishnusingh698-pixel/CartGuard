@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 import { useFetcher } from "@remix-run/react";
-import { Banner, BlockStack, Button, Card, InlineStack, Select, Text } from "@shopify/polaris";
+import { Banner, BlockStack, Modal, Select, Text } from "@shopify/polaris";
 
 import { useI18n } from "../i18n/context";
 import { LANGUAGE_OPTIONS, type Language } from "../i18n/locales";
@@ -23,15 +23,13 @@ type Props = {
   chosen: boolean;
   /** True when the current language was detected rather than chosen. */
   detected: boolean;
-  /** The admin locale offered as a shortcut, when it maps to a language we have. */
-  adminLanguage?: Language | null;
 };
 
 /**
  * The always-available selector in Settings. Saves immediately on change, so
  * there is no separate Save button to forget to press.
  */
-export function LanguageSetting({ value, chosen, detected, adminLanguage }: Props) {
+export function LanguageSetting({ value, chosen, detected }: Props) {
   const { t } = useI18n();
   const fetcher = useFetcher<SaveResponse>();
   const [pending, setPending] = useState<Language | null>(null);
@@ -46,6 +44,12 @@ export function LanguageSetting({ value, chosen, detected, adminLanguage }: Prop
     fetcher.submit({ language: next }, { method: "post", action: "/language" });
   };
 
+  // `pending` is cleared once the request settles, so a save that failed must
+  // not leave the control showing a value that was never stored. Clearing is
+  // derived from the fetcher rather than stored separately, which avoids a
+  // double-render and keeps the two states from drifting apart.
+  const failed = fetcher.state === "idle" && fetcher.data !== undefined && !fetcher.data.ok;
+
   return (
     <BlockStack gap="300">
       <Select
@@ -55,12 +59,12 @@ export function LanguageSetting({ value, chosen, detected, adminLanguage }: Prop
           value: option.value,
           label: option.label,
         }))}
-        value={shown}
+        value={failed ? value : shown}
         onChange={save}
         disabled={saving}
         helpText={
           <span id="language-status">
-            {fetcher.state === "idle" && fetcher.data && !fetcher.data.ok
+            {failed
               ? t("language.saveFailed")
               : !chosen && detected
                 ? t("language.detected")
@@ -70,17 +74,6 @@ export function LanguageSetting({ value, chosen, detected, adminLanguage }: Prop
           </span>
         }
       />
-      {adminLanguage && adminLanguage !== value && (
-        <InlineStack>
-          <Button
-            loading={saving}
-            onClick={() => save(adminLanguage)}
-            accessibilityLabel={t("language.useAdminLocale")}
-          >
-            {t("language.useAdminLocale")}
-          </Button>
-        </InlineStack>
-      )}
     </BlockStack>
   );
 }
@@ -89,69 +82,88 @@ export function LanguageSetting({ value, chosen, detected, adminLanguage }: Prop
  * The first-launch picker. Rendered as a modal over the app rather than as a
  * separate page so the merchant can see what they are about to set up, and so
  * skipping leaves them in the app instead of on a dead end.
+ *
+ * `savable` is false in the local demo preview, where there is no authenticated
+ * shop to store a preference against. The picker still opens so the copy is
+ * visible, but it says so and offers no control that would post to `/language`:
+ * in demo mode that action redirects to OAuth, which previously left the
+ * merchant staring at a modal whose every button bounced them out of the app.
  */
-export function LanguageOnboarding({ detectedLanguage }: { detectedLanguage: Language }) {
+export function LanguageOnboarding({
+  detectedLanguage,
+  savable = true,
+}: {
+  detectedLanguage: Language;
+  savable?: boolean;
+}) {
   const { t } = useI18n();
   const fetcher = useFetcher<SaveResponse>();
   const [selection, setSelection] = useState<Language>(detectedLanguage);
   const saving = fetcher.state !== "idle";
-  const failed = fetcher.state === "idle" && fetcher.data && !fetcher.data.ok;
+  const failed = fetcher.state === "idle" && fetcher.data !== undefined && !fetcher.data.ok;
+  // Modal content is mounted once `open` is true, so closing on a completed
+  // submit is a render-time state change rather than an effect.
+  const [done, setDone] = useState(false);
 
   const finish = (next: Language | null) => {
+    if (!savable) {
+      setDone(true);
+      return;
+    }
+    setDone(true);
     fetcher.submit(next ? { language: next } : {}, { method: "post", action: "/language" });
   };
 
+  // A failed save must reopen the dialog, or the merchant loses the error and
+  // the picker is simply gone until the next page load.
+  const open = savable ? !done || (failed && !saving) : !done;
+
   return (
-    <div className="cg-modal-backdrop">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("language.stepTitle")}
-        className="cg-modal"
-      >
-        <Card>
-          <BlockStack gap="400">
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">
-                {t("language.stepTitle")}
-              </Text>
-              <Text as="p" tone="subdued">
-                {t("language.onboardingDescription")}
-              </Text>
-            </BlockStack>
+    <Modal
+      open={open}
+      onClose={() => finish(null)}
+      title={t("language.stepTitle")}
+      primaryAction={{
+        content: t("language.continue"),
+        loading: saving,
+        disabled: !savable,
+        onAction: () => finish(selection),
+      }}
+      secondaryActions={[{ content: t("language.skip"), onAction: () => finish(null) }]}
+    >
+      <BlockStack gap="400">
+        <Text as="p" tone="subdued">
+          {t("language.onboardingDescription")}
+        </Text>
 
-            {failed && (
-              <Banner tone="critical">
-                <Text as="p">{t("language.saveFailed")}</Text>
-              </Banner>
-            )}
+        {!savable && (
+          <Banner tone="info">
+            <Text as="p">{t("language.demoNotice")}</Text>
+          </Banner>
+        )}
 
-            <Select
-              label={t("language.fieldLabel")}
-              labelHidden
-              options={LANGUAGE_OPTIONS.map((option) => ({
-                value: option.value,
-                label: option.label,
-              }))}
-              value={selection}
-              onChange={(next) => setSelection(next as Language)}
-            />
+        {failed && (
+          <Banner tone="critical">
+            <Text as="p">{t("language.saveFailed")}</Text>
+          </Banner>
+        )}
 
-            <InlineStack align="end" gap="200">
-              <Button onClick={() => finish(null)} disabled={saving}>
-                {t("language.skip")}
-              </Button>
-              <Button variant="primary" loading={saving} onClick={() => finish(selection)}>
-                {t("language.continue")}
-              </Button>
-            </InlineStack>
+        <Select
+          label={t("language.fieldLabel")}
+          labelHidden
+          options={LANGUAGE_OPTIONS.map((option) => ({
+            value: option.value,
+            label: option.label,
+          }))}
+          value={selection}
+          onChange={(next) => setSelection(next as Language)}
+          disabled={!savable}
+        />
 
-            <Text as="p" variant="bodySm" tone="subdued">
-              {t("language.description")}
-            </Text>
-          </BlockStack>
-        </Card>
-      </div>
-    </div>
+        <Text as="p" variant="bodySm" tone="subdued">
+          {t("language.description")}
+        </Text>
+      </BlockStack>
+    </Modal>
   );
 }

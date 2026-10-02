@@ -52,14 +52,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // Resolved here rather than read from the root loader because only this
   // loader knows the authenticated shop. Both calls agree, so `<html lang>`
   // and the app can never disagree about the language.
-  const { language, chosen, detected } = await resolveRequestLanguage(request, { shop });
+  const { language, chosen } = await resolveRequestLanguage(request, { shop });
   return json({
     apiKey: process.env.SHOPIFY_API_KEY ?? "",
     isMock,
     language,
     // Drives the one-time language picker and the Settings notice.
     languageChosen: chosen,
-    languageDetected: detected,
   });
 };
 
@@ -162,8 +161,10 @@ function AdminShell({
       )}
       <Outlet />
       {/* Shown once. Answering it, including skipping, stamps the shop's
-          preference so it does not reappear on the next page load. */}
-      {!languageChosen && <LanguageOnboarding detectedLanguage={language} />}
+          preference so it does not reappear on the next page load. Not
+          offered in the demo preview, where there is no shop to save against
+          and posting would redirect to OAuth. */}
+      {!languageChosen && <LanguageOnboarding detectedLanguage={language} savable={!isMock} />}
     </AppProvider>
   );
 }

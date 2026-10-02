@@ -1,16 +1,13 @@
 {
   "app.name": "CartGuard",
   "app.tagline": "Prevenção a fraudes e regras de validação de carrinho aplicadas no checkout.",
-
   "nav.label": "Páginas do CartGuard",
   "nav.overview": "Visão geral",
   "nav.rules": "Regras de bloqueio",
   "nav.orders": "Verificação de pedidos",
   "nav.settings": "Configurações",
-
   "demo.title": "Modo de demonstração",
   "demo.body": "Você está vendo dados de exemplo fora do admin do Shopify. Nada aqui é salvo em uma loja real.",
-
   "common.on": "Ligado",
   "common.off": "Desligado",
   "common.unknown": "Desconhecido",
@@ -31,13 +28,11 @@
   "common.setUp": "Configurar",
   "common.supportEmail": "support@cartguard.io",
   "common.shopifyUnresponsive": "O Shopify não respondeu ou retornou um erro. Suas regras não mudaram e o checkout continua funcionando. Tente novamente em instantes.",
-
   "status.badge.off": "Desligado",
   "status.badge.empty": "Nada adicionado ainda",
   "status.badge.active": "Ativo",
   "status.text.off": "Desligado. Os pedidos não são verificados nesta regra.",
   "status.text.empty": "Ligado, mas nada foi adicionado ainda, então nada é bloqueado.",
-
   "errors.notFound.title": "Página não encontrada",
   "errors.notFound.body": "Esta página não existe. Abra o CartGuard no admin do Shopify para voltar às suas regras de checkout.",
   "errors.generic.title": "Algo deu errado",
@@ -54,13 +49,13 @@
   "errors.shopLoadFailed": "Não foi possível carregar a loja do Shopify.",
   "errors.shopLoadFailedHint": "Recarregue a página e tente novamente.",
   "errors.functionNotInstalled": "A proteção de checkout do CartGuard ainda não está instalada na sua loja. Aguarde alguns minutos e salve novamente. Se continuar, reinstale o CartGuard ou entre em contato com support@cartguard.io.",
-
   "language.fieldLabel": "Idioma",
   "language.switcherLabel": "Idioma do aplicativo",
   "language.title": "Idioma",
   "language.description": "Escolha o idioma em que o CartGuard aparece no admin. Isso não muda o idioma da sua loja virtual nem do seu checkout.",
   "language.saved": "Idioma atualizado.",
   "language.saveFailed": "Não foi possível salvar seu idioma. Tente novamente em instantes.",
+  "language.demoNotice": "Esta é uma visualização com dados de exemplo, então o idioma não pode ser salvo aqui. Escolha o idioma em Configurações depois que o app for instalado.",
   "language.useAdminLocale": "Usar o idioma do meu admin do Shopify",
   "language.detected": "Detectado pelo seu admin do Shopify",
   "language.stepTitle": "Escolha seu idioma",
@@ -70,7 +65,6 @@
   "language.step": "Etapa {current} de {total}",
   "language.onboardingTitle": "Boas-vindas ao CartGuard",
   "language.onboardingDescription": "Vamos configurar o CartGuard primeiro no seu idioma. Você pode pular e mudar isso quando quiser em Configurações.",
-
   "overview.title": "Visão geral",
   "overview.subtitle": "O CartGuard impede pedidos arriscados ou que não podem ser entregues antes de o checkout terminar.",
   "overview.editRules": "Editar regras de bloqueio",
@@ -106,7 +100,6 @@
   "overview.help.title": "Precisa de ajuda?",
   "overview.help.body": "Entenda {link} quais pedidos são bloqueados, ou escreva para {email}.",
   "overview.help.link": "como o CartGuard decide",
-
   "settings.title": "Configurações",
   "settings.migration.title": "Suas regras ainda não são aplicadas no checkout",
   "settings.migration.body": "Elas foram salvas por uma versão anterior do CartGuard. Salve-as uma vez na página Regras de bloqueio para aplicá-las.",
@@ -137,7 +130,6 @@
   "settings.help.privacyPrefix": "Leia a nossa",
   "settings.help.privacyLink": "política de privacidade",
   "settings.help.privacySuffix": " para saber como o CartGuard trata seus dados.",
-
   "section.geo.title": "Países e regiões",
   "section.geo.description": "Bloqueie pedidos enviados para países, estados, cidades ou CEPs onde você não entrega.",
   "section.geo.anchor": "countries-and-regions",
@@ -154,7 +146,6 @@
   "section.turnOff": "Desligar",
   "section.toggleLabel": "{action} {section}",
   "section.offButInvalid.title": "Esta seção está desligada, mas algumas entradas precisam ser corrigidas antes de você salvar.",
-
   "rules.title": "Regras de bloqueio",
   "rules.subtitle": "Escolha quais pedidos o CartGuard impede no checkout.",
   "rules.unsaved": "Alterações não salvas",
@@ -190,7 +181,6 @@
   "rules.simulateFailed": "O teste não foi concluído.",
   "rules.impactFailed": "Não conseguimos testar essas regras com seus pedidos recentes. {reason} Você ainda pode salvá-las.",
   "rules.impactLimited": "Verifica até 40 produtos por pedido. Nada foi alterado.",
-
   "fields.countries.label": "Bloquear pedidos enviados para estes países",
   "fields.countries.help": "Isso também vale para clientes confiáveis.",
   "fields.countries.empty": "Nenhum país bloqueado.",
@@ -203,7 +193,6 @@
   "fields.countries.pasteLabel": "Cole uma lista de países",
   "fields.countries.pasteHelp": "Separe nomes ou códigos de 2 letras com vírgulas, por exemplo: Cazaquistão, CR, Rússia.",
   "fields.countries.anyCountry": "Qualquer país",
-
   "fields.states.label": "Bloquear pedidos enviados para estes estados ou províncias",
   "fields.states.help": "Escolha na lista para Estados Unidos, Canadá e Austrália. Para qualquer outro país, escolha Outro país e informe o código de região que o Shopify mostra nos pedidos.",
   "fields.states.empty": "Nenhum estado ou província bloqueados.",
@@ -219,39 +208,33 @@
   "fields.states.needCountry": "Escolha primeiro um país.",
   "fields.states.duplicate": "Isso já está na lista.",
   "fields.states.otherHelp": "Use o código de região que o Shopify mostra no endereço de entrega do pedido, como 13 para Tóquio no Japão. Alguns países, como o Reino Unido, não têm região nos endereços do Shopify. Para esses, bloqueie uma cidade ou CEP abaixo.",
-
   "fields.cities.label": "Bloquear pedidos enviados para estas cidades",
   "fields.cities.help": "Maiúsculas, acentos e pontuação não importam. Separe várias com vírgulas.",
   "fields.cities.empty": "Nenhuma cidade bloqueada.",
   "fields.cities.listName": "cidades bloqueadas",
   "fields.cities.placeholder": "San José",
   "fields.cities.scope": "País para as novas cidades",
-
   "fields.zips.label": "Bloquear pedidos enviados para estes CEPs",
   "fields.zips.help": "Espaços e hifens não importam, e os CEPs ZIP+4 dos EUA correspondem ao ZIP de 5 dígitos. Separe vários com vírgulas.",
   "fields.zips.empty": "Nenhum CEP bloqueado.",
   "fields.zips.listName": "CEPs bloqueados",
   "fields.zips.placeholder": "90210",
   "fields.zips.scope": "País para os novos CEPs",
-
   "fields.keywords.label": "Bloquear endereços que contenham estas palavras",
   "fields.keywords.help": "Por exemplo, “mail drop” ou “warehouse 4B”. Maiúsculas e acentos não importam.",
   "fields.keywords.placeholder": "mail drop",
   "fields.keywords.empty": "Nenhuma palavra bloqueada.",
   "fields.keywords.listName": "palavras bloqueadas",
-
   "fields.vipEmails.label": "E-mails de clientes confiáveis",
   "fields.vipEmails.help": "Clientes conectados com estes e-mails de conta pulam todas as regras, exceto países bloqueados. Visitantes que apenas digitam o e-mail, não.",
   "fields.vipEmails.placeholder": "cliente@exemplo.com",
   "fields.vipEmails.empty": "Nenhum e-mail confiável.",
   "fields.vipEmails.listName": "e-mails confiáveis",
-
   "fields.vipAddresses.label": "Endereços de entrega confiáveis",
   "fields.vipAddresses.help": "Precisa corresponder exatamente à primeira linha do endereço. Pulou apenas as verificações de endereço, não os limites de quantidade nem as áreas bloqueadas.",
   "fields.vipAddresses.placeholder": "123 Executive Blvd",
   "fields.vipAddresses.empty": "Nenhum endereço confiável.",
   "fields.vipAddresses.listName": "endereços confiáveis",
-
   "list.chip.remove": "Remover {value}",
   "list.removeAll": "Remover todos os {label}",
   "list.showAll": "Mostrar todos os {count}",
@@ -260,7 +243,6 @@
   "list.duplicateOne": "Isso já está na lista.",
   "list.duplicateMany": "{count} que já estavam na lista foram ignorados.",
   "list.rejected": "{count} entradas não foram adicionadas. {reason}",
-
   "address.risky.title": "Endereços de risco comuns",
   "address.poBox.label": "Bloquear caixas postais",
   "address.poBox.help": "Detecta P.O. Box, Post Office Box, Apartado Postal e Postfach, incluindo erros de escrita comuns.",
@@ -286,7 +268,6 @@
   "address.cityPlaceholder": "Deixe em branco para todas as cidades",
   "address.messageLabel": "Mensagem que o cliente vê (opcional)",
   "address.defaultMessage": "Não conseguimos entregar neste endereço. Informe outro endereço de entrega ou entre em contato conosco.",
-
   "quantity.empty": "Ainda sem limites. Adicione um para limitar quantas unidades um cliente pode comprar em um pedido.",
   "quantity.add": "Adicionar um limite",
   "quantity.row.title": "Limite {index}",
@@ -310,7 +291,6 @@
   "quantity.placeholderProduct": "1234567890",
   "quantity.placeholderAmount": "250",
   "quantity.messageLabel": "Mensagem que o cliente vê (opcional)",
-
   "orders.title": "Verificação de pedidos",
   "orders.subtitle": "Veja quais pedidos recentes suas regras de bloqueio salvas impediriam e por quê.",
   "orders.run": "Executar verificação",
@@ -338,15 +318,12 @@
   "orders.footnoteChecked": "Verificado em {date}. ",
   "orders.noAddress": "Sem endereço de entrega",
   "orders.lessThanOnePercent": "menos de 1%",
-
   "impact.blocked": "{count} dos seus pedidos recentes seriam bloqueados.",
   "impact.sample": "Por exemplo: {examples}",
-
   "login.title": "Entrar no CartGuard",
   "login.shopLabel": "Domínio da loja",
   "login.shopHelp": "Por exemplo: minha-loja.myshopify.com",
   "login.submit": "Entrar",
-
   "validation.countryUnknown": "Não reconhecemos “{value}” como um país. Escolha na lista ou use o código de 2 letras, como CR.",
   "validation.regionCode": "Os códigos de região têm até 6 letras ou números, como 13, MH ou TAMPS.",
   "validation.city": "“{value}” não parece um nome de cidade.",
@@ -381,7 +358,6 @@
   "validation.limitNeedsTarget": "Cada limite de quantidade precisa de uma tag de produto, um ID de produto ou Todos os produtos.",
   "validation.addressMessageTooLong": "{label} tem uma mensagem para o cliente com mais de {max} caracteres.",
   "validation.quantityMessageTooLong": "{label}: mantenha a mensagem para o cliente com menos de {max} caracteres.",
-
   "summary.everyProduct": "Todos os produtos",
   "summary.product": "Produto {id}",
   "summary.tagged": "Produtos com a tag “{tag}”",
@@ -409,7 +385,6 @@
   "summary.count.streetMany": "{count} endereços",
   "summary.count.fieldOne": "{count} campo",
   "summary.count.fieldMany": "{count} campos",
-
   "violation.ruleLabel.po_box": "regra de caixas postais",
   "violation.ruleLabel.military": "regra de endereços militares",
   "violation.ruleLabel.keywords": "regra de palavras bloqueadas",
@@ -424,7 +399,6 @@
   "violation.detail.quantityMin": "{quantity} unidades estão abaixo do mínimo de {min} para {target}",
   "violation.detail.amountMax": "o total de {total} ultrapassa o máximo de {max}",
   "violation.detail.amountMin": "o total de {total} está abaixo do mínimo de {min}",
-
   "privacy.title": "Política de Privacidade do CartGuard",
   "privacy.effectiveDate": "Vigência: {date}",
   "privacy.overview.heading": "1. Visão geral",

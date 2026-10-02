@@ -1,16 +1,13 @@
 {
   "app.name": "CartGuard",
   "app.tagline": "Fraudepreventie en winkelwagenregels die bij het afrekenen worden gecontroleerd.",
-
   "nav.label": "CartGuard-pagina's",
   "nav.overview": "Overzicht",
   "nav.rules": "Blokkeringsregels",
   "nav.orders": "Bestelling controleren",
   "nav.settings": "Instellingen",
-
   "demo.title": "Demomodus",
   "demo.body": "Je bekijkt voorbeeldgegevens buiten de Shopify-beheeromgeving. Er wordt hier niets in een echte winkel opgeslagen.",
-
   "common.on": "Aan",
   "common.off": "Uit",
   "common.unknown": "Onbekend",
@@ -31,13 +28,11 @@
   "common.setUp": "Instellen",
   "common.supportEmail": "support@cartguard.io",
   "common.shopifyUnresponsive": "Shopify reageerde niet of gaf een fout terug. Je regels zijn ongewijzigd en het afrekenen werkt nog steeds. Probeer het over een moment opnieuw.",
-
   "status.badge.off": "Uit",
   "status.badge.empty": "Nog niets toegevoegd",
   "status.badge.active": "Actief",
   "status.text.off": "Uit. Bestellingen worden hier niet op gecontroleerd.",
   "status.text.empty": "Aan, maar er is nog niets toegevoegd, dus er wordt niets geblokkeerd.",
-
   "errors.notFound.title": "Pagina niet gevonden",
   "errors.notFound.body": "Deze pagina bestaat niet. Open CartGuard vanuit je Shopify-beheeromgeving om terug te keren naar je afrekenregels.",
   "errors.generic.title": "Er ging iets mis",
@@ -54,13 +49,13 @@
   "errors.shopLoadFailed": "Kan de winkel niet vanuit Shopify laden.",
   "errors.shopLoadFailedHint": "Laad de pagina opnieuw en probeer het nog eens.",
   "errors.functionNotInstalled": "De afrekenbeveiliging van CartGuard is nog niet in je winkel geïnstalleerd. Wacht een paar minuten en sla opnieuw op. Installeer CartGuard opnieuw of neem contact op met support@cartguard.io als dit blijft gebeuren.",
-
   "language.fieldLabel": "Taal",
   "language.switcherLabel": "Taal van de app",
   "language.title": "Taal",
   "language.description": "Kies de taal waarin CartGuard in de beheeromgeving wordt getoond. Hierdoor verandert de taal van je webshop of afrekenpagina niet.",
   "language.saved": "Taal bijgewerkt.",
   "language.saveFailed": "Je taal kon niet worden opgeslagen. Probeer het over een moment opnieuw.",
+  "language.demoNotice": "Dit is een voorbeeldweergave met voorbeeldgegevens, dus je kunt hier geen taal opslaan. Kies je taal in Instellingen zodra de app is geïnstalleerd.",
   "language.useAdminLocale": "De taal van mijn Shopify-beheeromgeving gebruiken",
   "language.detected": "Herkend uit je Shopify-beheeromgeving",
   "language.stepTitle": "Kies je taal",
@@ -70,7 +65,6 @@
   "language.step": "Stap {current} van {total}",
   "language.onboardingTitle": "Welkom bij CartGuard",
   "language.onboardingDescription": "Laten we CartGuard eerst in je taal instellen. Je kunt dit overslaan en later altijd aanpassen in Instellingen.",
-
   "overview.title": "Overzicht",
   "overview.subtitle": "CartGuard stopt risicovolle en onbezorgbare bestellingen voordat het afrekenen is voltooid.",
   "overview.editRules": "Blokkeringsregels bewerken",
@@ -106,7 +100,6 @@
   "overview.help.title": "Hulp nodig?",
   "overview.help.body": "Lees {link} welke bestellingen worden tegengehouden, of mail naar {email}.",
   "overview.help.link": "hoe CartGuard beslist",
-
   "settings.title": "Instellingen",
   "settings.migration.title": "Je regels worden nog niet bij het afrekenen toegepast",
   "settings.migration.body": "Ze zijn opgeslagen met een oudere versie van CartGuard. Sla ze één keer op bij Blokkeringsregels om ze toe te passen.",
@@ -137,7 +130,6 @@
   "settings.help.privacyPrefix": "Lees in ons",
   "settings.help.privacyLink": "privacybeleid",
   "settings.help.privacySuffix": " hoe CartGuard met je gegevens omgaat.",
-
   "section.geo.title": "Landen en regio's",
   "section.geo.description": "Blokkeer bestellingen die naar landen, provincies, steden of postcodes worden gestuurd waar je niet bezorgt.",
   "section.geo.anchor": "countries-and-regions",
@@ -154,7 +146,6 @@
   "section.turnOff": "Uitschakelen",
   "section.toggleLabel": "{section} {action}",
   "section.offButInvalid.title": "Dit onderdeel staat uit, maar sommige items moeten worden gecorrigeerd voordat je kunt opslaan.",
-
   "rules.title": "Blokkeringsregels",
   "rules.subtitle": "Kies welke bestellingen CartGuard bij het afrekenen tegenhoudt.",
   "rules.unsaved": "Niet-opgeslagen wijzigingen",
@@ -190,7 +181,6 @@
   "rules.simulateFailed": "De test is niet voltooid.",
   "rules.impactFailed": "We konden deze regels niet testen op je recente bestellingen. {reason} Je kunt ze alsnog opslaan.",
   "rules.impactLimited": "Controleert maximaal 40 producten per bestelling. Er is niets gewijzigd.",
-
   "fields.countries.label": "Blokkeer bestellingen die naar deze landen worden gestuurd",
   "fields.countries.help": "Dit geldt ook voor vertrouwde klanten.",
   "fields.countries.empty": "Geen landen geblokkeerd.",
@@ -203,7 +193,6 @@
   "fields.countries.pasteLabel": "Plak een lijst met landen",
   "fields.countries.pasteHelp": "Scheid namen of tweelettercodes met komma's, bijvoorbeeld: Kazachstan, CR, Rusland.",
   "fields.countries.anyCountry": "Elk land",
-
   "fields.states.label": "Blokkeer bestellingen die naar deze provincies of staten worden gestuurd",
   "fields.states.help": "Kies uit de lijst voor de Verenigde Staten, Canada en Australië. Kies voor een ander land 'Ander land' en voer de regiocode in die Shopify op bestellingen toont.",
   "fields.states.empty": "Geen provincies of staten geblokkeerd.",
@@ -219,39 +208,33 @@
   "fields.states.needCountry": "Kies eerst een land.",
   "fields.states.duplicate": "Dat staat al in de lijst.",
   "fields.states.otherHelp": "Gebruik de regiocode die Shopify op het bezorgadres van de bestelling toont, zoals 13 voor Tokyo in Japan. Sommige landen, zoals het Verenigd Koninkrijk, hebben geen regio op Shopify-adressen. Blokkeer daarvoor hieronder een stad of postcode.",
-
   "fields.cities.label": "Blokkeer bestellingen die naar deze steden worden gestuurd",
   "fields.cities.help": "Hoofdlettergebruik, accenten en leestekens maken niet uit. Scheid meerdere met komma's.",
   "fields.cities.empty": "Geen steden geblokkeerd.",
   "fields.cities.listName": "geblokkeerde steden",
   "fields.cities.placeholder": "San José",
   "fields.cities.scope": "Land voor nieuwe steden",
-
   "fields.zips.label": "Blokkeer bestellingen die naar deze postcodes worden gestuurd",
   "fields.zips.help": "Spaties en streepjes maken niet uit, en Amerikaanse ZIP+4-codes komen overeen met hun 5-cijferige ZIP. Scheid meerdere met komma's.",
   "fields.zips.empty": "Geen postcodes geblokkeerd.",
   "fields.zips.listName": "geblokkeerde postcodes",
   "fields.zips.placeholder": "90210",
   "fields.zips.scope": "Land voor nieuwe postcodes",
-
   "fields.keywords.label": "Blokkeer adressen met deze woorden",
   "fields.keywords.help": "Bijvoorbeeld ‘mail drop’ of ‘warehouse 4B’. Hoofdlettergebruik en accenten maken niet uit.",
   "fields.keywords.placeholder": "mail drop",
   "fields.keywords.empty": "Geen geblokkeerde woorden.",
   "fields.keywords.listName": "geblokkeerde woorden",
-
   "fields.vipEmails.label": "E-mailadressen van vertrouwde klanten",
   "fields.vipEmails.help": "Klanten die met deze accountadressen zijn ingelogd, slaan elke regel over behalve geblokkeerde landen. Voor bezoekers die alleen het e-mailadres typen, geldt dit niet.",
   "fields.vipEmails.placeholder": "klant@voorbeeld.nl",
   "fields.vipEmails.empty": "Geen vertrouwde e-mailadressen.",
   "fields.vipEmails.listName": "vertrouwde e-mailadressen",
-
   "fields.vipAddresses.label": "Vertrouwde straatadressen",
   "fields.vipAddresses.help": "Moet exact overeenkomen met de eerste adresregel. Slaat alleen de adrescontroles over, niet de aantal-limieten of geblokkeerde gebieden.",
   "fields.vipAddresses.placeholder": "123 Executive Blvd",
   "fields.vipAddresses.empty": "Geen vertrouwde adressen.",
   "fields.vipAddresses.listName": "vertrouwde adressen",
-
   "list.chip.remove": "{value} verwijderen",
   "list.removeAll": "Alle {label} verwijderen",
   "list.showAll": "Alle {count} tonen",
@@ -260,7 +243,6 @@
   "list.duplicateOne": "Dat staat al in de lijst.",
   "list.duplicateMany": "{count} items die al in de lijst stonden, zijn overgeslagen.",
   "list.rejected": "{count} items zijn niet toegevoegd. {reason}",
-
   "address.risky.title": "Veelvoorkomende risicovolle adressen",
   "address.poBox.label": "Brievenbussen blokkeren",
   "address.poBox.help": "Herkent P.O. Box, Post Office Box, Apartado Postal en Postfach, inclusief gangbare schrijfwijzen.",
@@ -286,7 +268,6 @@
   "address.cityPlaceholder": "Laat leeg voor elke stad",
   "address.messageLabel": "Bericht dat klanten zien (optioneel)",
   "address.defaultMessage": "We kunnen niet naar dit adres bezorgen. Voer een ander bezorgadres in of neem contact met ons op.",
-
   "quantity.empty": "Nog geen limieten. Voeg er een toe om te beperken hoeveel exemplaren een klant in één bestelling kan kopen.",
   "quantity.add": "Een limiet toevoegen",
   "quantity.row.title": "Limiet {index}",
@@ -310,7 +291,6 @@
   "quantity.placeholderProduct": "1234567890",
   "quantity.placeholderAmount": "250",
   "quantity.messageLabel": "Bericht dat klanten zien (optioneel)",
-
   "orders.title": "Bestelling controleren",
   "orders.subtitle": "Bekijk welke recente bestellingen je opgeslagen blokkeringsregels zouden tegenhouden en waarom.",
   "orders.run": "Controle uitvoeren",
@@ -338,15 +318,12 @@
   "orders.footnoteChecked": "Gecontroleerd op {date}. ",
   "orders.noAddress": "Geen bezorgadres",
   "orders.lessThanOnePercent": "minder dan 1%",
-
   "impact.blocked": "{count} van je recente bestellingen zouden worden tegengehouden.",
   "impact.sample": "Bijvoorbeeld: {examples}",
-
   "login.title": "Inloggen bij CartGuard",
   "login.shopLabel": "Winkelprofiel",
   "login.shopHelp": "Bijvoorbeeld: mijn-winkel.myshopify.com",
   "login.submit": "Inloggen",
-
   "validation.countryUnknown": "We herkennen ‘{value}’ niet als een land. Kies het uit de lijst of gebruik de tweelettercode, zoals CR.",
   "validation.regionCode": "Regiocodes bestaan uit maximaal 6 letters of cijfers, zoals 13, MH of TAMPS.",
   "validation.city": "‘{value}’ lijkt geen stadsnaam te zijn.",
@@ -381,7 +358,6 @@
   "validation.limitNeedsTarget": "Elke aantallimiet heeft een producttag, een product-ID of ‘Alle producten’ nodig.",
   "validation.addressMessageTooLong": "{label} heeft een klantbericht van meer dan {max} tekens.",
   "validation.quantityMessageTooLong": "{label}: houd het klantbericht onder de {max} tekens.",
-
   "summary.everyProduct": "Alle producten",
   "summary.product": "Product {id}",
   "summary.tagged": "Producten met de tag ‘{tag}’",
@@ -409,7 +385,6 @@
   "summary.count.streetMany": "{count} straatadressen",
   "summary.count.fieldOne": "{count} veld",
   "summary.count.fieldMany": "{count} velden",
-
   "violation.ruleLabel.po_box": "regel voor brievenbussen",
   "violation.ruleLabel.military": "regel voor militaire adressen",
   "violation.ruleLabel.keywords": "regel voor geblokkeerde woorden",
@@ -424,7 +399,6 @@
   "violation.detail.quantityMin": "{quantity} exemplaren liggen onder het minimum van {min} voor {target}",
   "violation.detail.amountMax": "besteltotaal {total} ligt boven het maximum van {max}",
   "violation.detail.amountMin": "besteltotaal {total} ligt onder het minimum van {min}",
-
   "privacy.title": "Privacybeleid van CartGuard",
   "privacy.effectiveDate": "Ingangsdatum: {date}",
   "privacy.overview.heading": "1. Overzicht",

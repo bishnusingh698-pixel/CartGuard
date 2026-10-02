@@ -1,16 +1,13 @@
 {
   "app.name": "CartGuard",
   "app.tagline": "Bedrägeribekämpning och regler för varukorgskontroll som tillämpas i kassan.",
-
   "nav.label": "CartGuids sidor",
   "nav.overview": "Översikt",
   "nav.rules": "Blockeringsregler",
   "nav.orders": "Orderkontroll",
   "nav.settings": "Inställningar",
-
   "demo.title": "Demoläge",
   "demo.body": "Du ser exempeldata utanför Shopify-admin. Inget här sparas i en riktig butik.",
-
   "common.on": "På",
   "common.off": "Av",
   "common.unknown": "Okänd",
@@ -31,13 +28,11 @@
   "common.setUp": "Konfigurera",
   "common.supportEmail": "support@cartguard.io",
   "common.shopifyUnresponsive": "Shopify svarade inte eller returnerade ett fel. Dina regler är oförändrade och kassan fungerar fortfarande. Försök igen om en stund.",
-
   "status.badge.off": "Av",
   "status.badge.empty": "Inget tillagt ännu",
   "status.badge.active": "Aktiv",
   "status.text.off": "Av. Order kontrolleras inte efter den här regeln.",
   "status.text.empty": "På, men inget har lagts till ännu, så ingenting blockeras.",
-
   "errors.notFound.title": "Sidan hittades inte",
   "errors.notFound.body": "Den här sidan finns inte. Öppna CartGuard från din Shopify-admin för att komma tillbaka till dina kasseregler.",
   "errors.generic.title": "Något gick fel",
@@ -54,13 +49,13 @@
   "errors.shopLoadFailed": "Det gick inte att läsa in butiken från Shopify.",
   "errors.shopLoadFailedHint": "Ladda om sidan och försök igen.",
   "errors.functionNotInstalled": "CartGuards kassaskydd är inte installerat i din butik ännu. Vänta några minuter och spara igen. Om det fortsätter, installera om CartGuard eller kontakta support@cartguard.io.",
-
   "language.fieldLabel": "Språk",
   "language.switcherLabel": "Appens språk",
   "language.title": "Språk",
   "language.description": "Välj det språk CartGuard visas på i admin. Det påverkar varken ditt webbplatsspråk eller kassans språk.",
   "language.saved": "Språket har uppdaterats.",
   "language.saveFailed": "Ditt språk kunde inte sparas. Försök igen om en stund.",
+  "language.demoNotice": "Detta är en förhandsvisning med exempeldata, så språket kan inte sparas här. Välj språk i Inställningar när appen är installerad.",
   "language.useAdminLocale": "Använd språket i min Shopify-admin",
   "language.detected": "Identifierat från din Shopify-admin",
   "language.stepTitle": "Välj ditt språk",
@@ -70,7 +65,6 @@
   "language.step": "Steg {current} av {total}",
   "language.onboardingTitle": "Välkommen till CartGuard",
   "language.onboardingDescription": "Låt oss först konfigurera CartGuard på ditt språk. Du kan hoppa över steget och ändra det när du vill under Inställningar.",
-
   "overview.title": "Översikt",
   "overview.subtitle": "CartGuard stoppar riskfyllda och odelivererbara order innan kassan är klar.",
   "overview.editRules": "Redigera blockeringsregler",
@@ -106,7 +100,6 @@
   "overview.help.title": "Behöver du hjälp?",
   "overview.help.body": "Läs {link} om vilka order som blockeras, eller mejla {email}.",
   "overview.help.link": "hur CartGuard bestämmer",
-
   "settings.title": "Inställningar",
   "settings.migration.title": "Dina regler tillämpas inte i kassan ännu",
   "settings.migration.body": "De sparades av en äldre version av CartGuard. Spara dem en gång på sidan Blockeringsregler för att tillämpa dem.",
@@ -137,7 +130,6 @@
   "settings.help.privacyPrefix": "Läs i vår",
   "settings.help.privacyLink": "integritetspolicy",
   "settings.help.privacySuffix": " hur CartGuard hanterar dina uppgifter.",
-
   "section.geo.title": "Länder och regioner",
   "section.geo.description": "Blockera order som skickas till länder, län, städer eller postnummer du inte levererar till.",
   "section.geo.anchor": "countries-and-regions",
@@ -154,7 +146,6 @@
   "section.turnOff": "Stäng av",
   "section.toggleLabel": "{action} {section}",
   "section.offButInvalid.title": "Den här delen är avstängd, men vissa poster måste rättas innan du kan spara.",
-
   "rules.title": "Blockeringsregler",
   "rules.subtitle": "Välj vilka order CartGuard stoppar i kassan.",
   "rules.unsaved": "Osparade ändringar",
@@ -190,7 +181,6 @@
   "rules.simulateFailed": "Testet slutfördes inte.",
   "rules.impactFailed": "Vi kunde inte testa de här reglerna på dina nyliga order. {reason} Du kan fortfarande spara dem.",
   "rules.impactLimited": "Kontrollerar upp till 40 produkter per order. Inget har ändrats.",
-
   "fields.countries.label": "Blockera order som skickas till de här länderna",
   "fields.countries.help": "Det gäller även betrodda kunder.",
   "fields.countries.empty": "Inga länder blockerade.",
@@ -203,7 +193,6 @@
   "fields.countries.pasteLabel": "Klistra in en lista med länder",
   "fields.countries.pasteHelp": "Separera namn eller tvåbokstaviga koder med kommatecken, till exempel: Kazakstan, CR, Ryssland.",
   "fields.countries.anyCountry": "Alla länder",
-
   "fields.states.label": "Blockera order som skickas till de här länen eller provinserna",
   "fields.states.help": "Välj i listan för USA, Kanada och Australien. För andra länder, välj Annat land och ange regionkoden som Shopify visar på orderna.",
   "fields.states.empty": "Inga län eller provinser blockerade.",
@@ -219,39 +208,33 @@
   "fields.states.needCountry": "Välj ett land först.",
   "fields.states.duplicate": "Det finns redan i listan.",
   "fields.states.otherHelp": "Använd den regionkod Shopify visar på orderns leveransadress, till exempel 13 för Tokyo i Japan. Vissa länder, som Storbritannien, har ingen region på Shopify-adresser. För dem blockerar du en stad eller ett postnummer i stället.",
-
   "fields.cities.label": "Blockera order som skickas till de här städerna",
   "fields.cities.help": "Versaler, accenter och tankstecken spelar ingen roll. Separera flera med kommatecken.",
   "fields.cities.empty": "Inga städer blockerade.",
   "fields.cities.listName": "blockerade städer",
   "fields.cities.placeholder": "San José",
   "fields.cities.scope": "Land för nya städer",
-
   "fields.zips.label": "Blockera order som skickas till de här postnumren",
   "fields.zips.help": "Blanksteg och bindestreck spelar ingen roll, och amerikanska ZIP+4-koder matchar sitt 5-siffriga ZIP. Separera flera med kommatecken.",
   "fields.zips.empty": "Inga postnummer blockerade.",
   "fields.zips.listName": "blockerade postnummer",
   "fields.zips.placeholder": "90210",
   "fields.zips.scope": "Land för nya postnummer",
-
   "fields.keywords.label": "Blockera adresser som innehåller de här orden",
   "fields.keywords.help": "Till exempel ”mail drop” eller ”warehouse 4B”. Versaler och accenter spelar ingen roll.",
   "fields.keywords.placeholder": "mail drop",
   "fields.keywords.empty": "Inga blockerade ord.",
   "fields.keywords.listName": "blockerade ord",
-
   "fields.vipEmails.label": "E-postadresser för betrodda kunder",
   "fields.vipEmails.help": "Kunder som är inloggade med de här kontoadresserna hoppar över alla regler utom blockerade länder. Det gäller inte gäster som bara skriver e-postadressen.",
   "fields.vipEmails.placeholder": "kund@exempel.se",
   "fields.vipEmails.empty": "Inga betrodda e-postadresser.",
   "fields.vipEmails.listName": "betrodda e-postadresser",
-
   "fields.vipAddresses.label": "Betrodda gatuadresser",
   "fields.vipAddresses.help": "Måste stämma exakt med adressens första rad. Hoppar bara över adresskontrollerna, inte antalsgränserna eller blockerade områden.",
   "fields.vipAddresses.placeholder": "123 Executive Blvd",
   "fields.vipAddresses.empty": "Inga betrodda adresser.",
   "fields.vipAddresses.listName": "betrodda adresser",
-
   "list.chip.remove": "Ta bort {value}",
   "list.removeAll": "Ta bort alla {label}",
   "list.showAll": "Visa alla {count}",
@@ -260,7 +243,6 @@
   "list.duplicateOne": "Det finns redan i listan.",
   "list.duplicateMany": "{count} som redan fanns i listan hoppades över.",
   "list.rejected": "{count} poster lades inte till. {reason}",
-
   "address.risky.title": "Vanliga riskadresser",
   "address.poBox.label": "Blockera postboxar",
   "address.poBox.help": "Känner igen P.O. Box, Post Office Box, Apartado Postal och Postfach, även vanliga felstavningar.",
@@ -286,7 +268,6 @@
   "address.cityPlaceholder": "Lämna tomt för alla städer",
   "address.messageLabel": "Meddelande som kunder ser (valfritt)",
   "address.defaultMessage": "Vi kan inte leverera till den här adressen. Ange en annan leveransadress eller kontakta oss.",
-
   "quantity.empty": "Inga gränser ännu. Lägg till en för att begränsa hur många exemplar en kund kan köpa i en order.",
   "quantity.add": "Lägg till en gräns",
   "quantity.row.title": "Gräns {index}",
@@ -310,7 +291,6 @@
   "quantity.placeholderProduct": "1234567890",
   "quantity.placeholderAmount": "250",
   "quantity.messageLabel": "Meddelande som kunder ser (valfritt)",
-
   "orders.title": "Orderkontroll",
   "orders.subtitle": "Se vilka nyliga order dina sparade blockeringsregler skulle stoppa och varför.",
   "orders.run": "Kör kontrollen",
@@ -338,15 +318,12 @@
   "orders.footnoteChecked": "Kontrollerat {date}. ",
   "orders.noAddress": "Ingen leveransadress",
   "orders.lessThanOnePercent": "mindre än 1 %",
-
   "impact.blocked": "{count} av dina nyliga order skulle blockeras.",
   "impact.sample": "Till exempel: {examples}",
-
   "login.title": "Logga in till CartGuard",
   "login.shopLabel": "Butiksdomän",
   "login.shopHelp": "Till exempel: min-butik.myshopify.com",
   "login.submit": "Logga in",
-
   "validation.countryUnknown": "Vi känner inte igen ”{value}” som ett land. Välj det i listan eller använd dess tvåbokstaviga kod, som CR.",
   "validation.regionCode": "Regionkoder består av upp till 6 bokstäver eller siffror, som 13, MH eller TAMPS.",
   "validation.city": "”{value}” ser inte ut som ett stadsnamn.",
@@ -381,7 +358,6 @@
   "validation.limitNeedsTarget": "Varje antalsgräns behöver en produkttagg, ett produkt-ID eller Alla produkter.",
   "validation.addressMessageTooLong": "{label} har ett kundmeddelande längre än {max} tecken.",
   "validation.quantityMessageTooLong": "{label}: håll kundmeddelandet under {max} tecken.",
-
   "summary.everyProduct": "Alla produkter",
   "summary.product": "Produkt {id}",
   "summary.tagged": "Produkter med taggen ”{tag}”",
@@ -409,7 +385,6 @@
   "summary.count.streetMany": "{count} gatuadresser",
   "summary.count.fieldOne": "{count} fält",
   "summary.count.fieldMany": "{count} fält",
-
   "violation.ruleLabel.po_box": "regel för postboxar",
   "violation.ruleLabel.military": "regel för militäradresser",
   "violation.ruleLabel.keywords": "regel för blockerade ord",
@@ -424,7 +399,6 @@
   "violation.detail.quantityMin": "{quantity} exemplar ligger under minimigränsen på {min} för {target}",
   "violation.detail.amountMax": "ordersumman {total} ligger över maxgränsen på {max}",
   "violation.detail.amountMin": "ordersumman {total} ligger under minimigränsen på {min}",
-
   "privacy.title": "CartGuids integritetspolicy",
   "privacy.effectiveDate": "Gäller från: {date}",
   "privacy.overview.heading": "1. Översikt",

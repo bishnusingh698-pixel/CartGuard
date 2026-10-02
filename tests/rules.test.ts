@@ -113,6 +113,54 @@ describe("quantity limits", () => {
     expect(evaluateCart(line("gid://shopify/Product/1"), limits)).toHaveLength(1);
   });
 
+  it("enforces both ends of the range: min below, max above, neither inside", () => {
+    // The merchant-facing promise is "between N and M per order", so both
+    // bounds have to be enforced and an order inside the range has to pass.
+    const limits = config({ quantityLimits: { "gid://shopify/Product/1": { min: 3, max: 10 } } });
+    const order = (quantity: number) =>
+      evaluateCart({ email: null, addresses: [], lines: [{ index: 0, productId: "gid://shopify/Product/1", quantity, tags: [] }] }, limits);
+
+    expect(order(2).map((v) => v.rule)).toEqual(["quantity"]);
+    expect(order(11).map((v) => v.rule)).toEqual(["quantity"]);
+    expect(order(3)).toHaveLength(0);
+    expect(order(10)).toHaveLength(0);
+  });
+
+  it("enforces order totals through minAmount and maxAmount", () => {
+    // Amount bounds are read off the cart total, which falls back to summing
+    // `unitPrice` when Shopify sends no `totalAmount`.
+    const withTotal = (unitPrice: number) =>
+      evaluateCart({ email: null, addresses: [], lines: [{ index: 0, productId: "gid://shopify/Product/1", quantity: 1, tags: [], unitPrice }] },
+        config({ quantityLimits: { "gid://shopify/Product/1": { minAmount: 100, maxAmount: 500 } } }));
+
+    expect(withTotal(50).map((v) => v.rule)).toEqual(["amount"]);
+    expect(withTotal(900).map((v) => v.rule)).toEqual(["amount"]);
+    expect(withTotal(250)).toHaveLength(0);
+  });
+
+  it("lets VIPs skip quantity and amount limits, but never a blocked country", () => {
+    // A VIP is trusted to be a real customer ordering for themselves, so any
+    // limit that exists purely to catch bulk abuse does not apply to them. The
+    // country embargo is a different thing: it is a legal/geographic block,
+    // not a fraud signal, so it holds for everyone including VIPs.
+    const vip = "vip@store.com";
+    const bust = { email: null, customerEmail: vip, addresses: [{ groupIndex: 0, address: { address1: "1 Market St", countryCode: "US" } }], lines: [{ index: 0, productId: "gid://shopify/Product/1", quantity: 999, tags: [], unitPrice: 999 }] };
+
+    const quantityOnly = config({ quantityLimits: { "gid://shopify/Product/1": { min: 5, max: 10, minAmount: 100, maxAmount: 500 } }, vipAllowlist: [vip] });
+    expect(evaluateCart(bust, quantityOnly)).toHaveLength(0);
+
+    const sameButNonVip = config({ quantityLimits: { "gid://shopify/Product/1": { min: 5, max: 10, minAmount: 100, maxAmount: 500 } } });
+    expect(evaluateCart({ ...bust, customerEmail: "someone@store.com" }, sameButNonVip).length).toBeGreaterThan(0);
+
+    const withEmbargo = config({
+      geoBlocklist: { countries: ["KZ"], zips: [], cities: [], states: [] },
+      quantityLimits: { "gid://shopify/Product/1": { max: 10 } },
+      vipAllowlist: [vip],
+    });
+    const embargoed = evaluateCart({ ...bust, addresses: [{ groupIndex: 0, address: { address1: "Abay Avenue 45", countryCode: "KZ" } }] }, withEmbargo);
+    expect(embargoed.map((v) => v.rule)).toEqual(["country"]);
+  });
+
   it("only asks the Function about real tags", () => {
     const tags = collectLimitTags({ bulk: { max: 1 }, all: { max: 1 }, "gid://shopify/Product/5": { max: 1 }, "123": { max: 1 } });
     expect([...tags].sort()).toEqual(["123", "bulk"]);

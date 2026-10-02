@@ -55,6 +55,7 @@
   "language.description": "CartGuard を管理画面で表示する言語を選択します。オンラインストアや決済ページの言語は変更されません。",
   "language.saved": "言語を更新しました。",
   "language.saveFailed": "言語を保存できませんでした。しばらくしてからもう一度お試しください。",
+  "language.demoNotice": "これはサンプルデータのプレビューです。言語は保存できません。アプリをインストール後に「設定」で言語を選択してください。",
   "language.useAdminLocale": "Shopify 管理画面の言語を使う",
   "language.detected": "Shopify 管理画面から検出",
   "language.stepTitle": "言語を選択",

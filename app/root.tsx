@@ -17,6 +17,7 @@ import tailwindCss from "./tailwind.css?url";
 
 import { I18nProvider, useI18n } from "./i18n/context";
 import { resolveRequestLanguage } from "./i18n/language.server";
+import { readRequestShop } from "./lib/request-shop.server";
 import { DEFAULT_LANGUAGE, type Language } from "./i18n/locales";
 
 export const meta: MetaFunction = () => [
@@ -38,17 +39,18 @@ export const links: LinksFunction = () => [
  * already carries the right `lang` and the right translated copy. A language
  * the merchant saved wins over the admin locale.
  *
- * The shop is read from the `shop` query parameter rather than by
- * authenticating: root renders pages that must work signed out, such as the
- * privacy policy, and authenticating here would redirect before they could
- * render. Embedded requests always carry `shop`, which is all the saved
- * preference lookup needs.
+ * The shop comes from `readRequestShop`, which reads the authenticated session
+ * and falls back to the `shop` parameter. It must not be the parameter alone:
+ * a merchant who installed the app as a non-embedded app reaches `/app`
+ * without one, and root would then ignore their saved preference and emit
+ * `lang="en"` while `app.tsx` rendered Japanese — two different languages in
+ * one document.
  *
  * It never throws: a database problem must degrade to English rather than break
  * the page.
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const shop = new URL(request.url).searchParams.get("shop") ?? undefined;
+  const shop = await readRequestShop(request);
   const { language } = await resolveRequestLanguage(request, { shop }).catch(() => ({
     language: DEFAULT_LANGUAGE,
     chosen: false,
