@@ -78,13 +78,21 @@ chosen admin language. See `app/routes/privacy.tsx` for the full statement.
 
 ## Deployment
 
-`render.yaml` deploys to Render. The build runs `npm install --include=dev &&
-npm run build`; the start command runs `prisma migrate deploy && npm start`, so
-schema changes apply on each boot and a fresh database gets its tables. The
-health check hits `/api/ping`. Set `DATABASE_URL`, `SHOPIFY_API_KEY` and
-`SHOPIFY_API_SECRET` in the Render dashboard, with `sync: false` so they are not
-committed. On the free plan, point an uptime pinger at `/api/ping` every 5-10
-minutes so the instance does not sleep.
+`.npmrc` sets `include=dev`. Render builds with `NODE_ENV=production`, which
+makes npm skip devDependencies, and the Vite build then dies on
+`Cannot find module 'tailwindcss'` because `postcss.config.js` loads Tailwind.
+The flag keeps the build working whatever build command is configured.
+
+`render.yaml` describes the service: build `npm install && npm run build`, start
+`npm run db:deploy && npm start` so schema changes apply on each boot, health
+check `/api/ping`. Set `DATABASE_URL`, `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET`
+in the Render dashboard with `sync: false` so they are not committed. On the free
+plan, point an uptime pinger at `/api/ping` every 5-10 minutes so the instance
+does not sleep.
+
+Note that `render.yaml` only applies if the service was created from the
+blueprint. If the build and start commands are set in the Render dashboard
+instead, keep them in step with the file.
 
 The app is embedded (`embedded = true` in `shopify.app.toml`), so
 `SHOPIFY_APP_URL` is the tunnel URL Shopify loads the admin inside.
