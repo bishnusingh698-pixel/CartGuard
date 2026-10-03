@@ -11,10 +11,10 @@ import {
   Text,
   TextField,
 } from "@shopify/polaris";
-import polarisTranslations from "@shopify/polaris/locales/en.json";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 import { login } from "../shopify.server";
 import { loginErrorMessage } from "../lib/login-errors.server";
+import { useI18n } from "../i18n/context";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
@@ -31,30 +31,31 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function AuthLogin() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { t, polarisI18n } = useI18n();
   const [shop, setShop] = useState("");
   const { errors } = actionData || loaderData;
 
   return (
-    <PolarisAppProvider i18n={polarisTranslations}>
+    <PolarisAppProvider i18n={polarisI18n}>
       <Page>
         <Card>
           <Form method="post">
             <FormLayout>
               <Text variant="headingMd" as="h2">
-                Log in to CartGuard
+                {t("login.title")}
               </Text>
               <TextField
                 type="text"
                 name="shop"
-                label="Shop domain"
-                helpText="For example: my-shop-domain.myshopify.com"
+                label={t("login.shopLabel")}
+                helpText={t("login.shopHelp")}
                 value={shop}
                 onChange={setShop}
                 autoComplete="on"
                 error={errors?.shop}
               />
               <Button submit variant="primary">
-                Log in
+                {t("login.submit")}
               </Button>
             </FormLayout>
           </Form>

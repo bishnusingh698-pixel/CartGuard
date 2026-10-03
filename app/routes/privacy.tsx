@@ -1,98 +1,102 @@
 import type { HeadersFunction } from "@remix-run/node";
+import { Fragment, type ReactNode } from "react";
+
+import { useI18n } from "../i18n/context";
 
 export const headers: HeadersFunction = () => ({
   "Cache-Control": "public, max-age=3600",
 });
 
+const SUPPORT_EMAIL = "support@cartguard.io";
+
+/**
+ * Each GDPR bullet leads with an identifier the merchant recognises
+ * (`customers/data_request: ...`). Splitting on the colon keeps the translator's
+ * word order intact while rendering that identifier in a monospace tag.
+ */
+function PolicyTerm({ text }: { text: string }): ReactNode {
+  const separator = text.search(/:\s/);
+  if (separator === -1) return text;
+  return (
+    <Fragment>
+      <code>{text.slice(0, separator)}</code>
+      {text.slice(separator)}
+    </Fragment>
+  );
+}
+
+/** The contact sentence ends in `{email}`, so the anchor is spliced in rather
+ * than stringified, letting translators order the sentence as they like. */
+function ContactSentence({ body }: { body: string }): ReactNode {
+  const parts = body.split(/(\{email\})/g).filter(Boolean);
+  return parts.map((part, index) =>
+    part === "{email}" ? (
+      <a key={index} href={`mailto:${SUPPORT_EMAIL}`} className="text-blue-600 hover:underline">
+        {SUPPORT_EMAIL}
+      </a>
+    ) : (
+      <Fragment key={index}>{part}</Fragment>
+    ),
+  );
+}
+
+function Section({ heading, children }: { heading: string; children: ReactNode }) {
+  return (
+    <div>
+      <h2 className="text-lg font-semibold text-slate-900 mb-2">{heading}</h2>
+      {children}
+    </div>
+  );
+}
+
 export default function PrivacyPolicy() {
+  const { t } = useI18n();
+
   return (
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 text-slate-800">
       <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-sm border border-slate-200 p-8 sm:p-12">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-4">CartGuard Privacy Policy</h1>
-        <p className="text-sm text-slate-500 mb-8">Effective date: October 2026</p>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-4">{t("privacy.title")}</h1>
+        <p className="text-sm text-slate-500 mb-8">{t("privacy.effectiveDate", { date: "October 2026" })}</p>
 
         <div className="space-y-6 text-sm leading-6">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">What we store</h2>
+          <Section heading={t("privacy.overview.heading")}>
+            <p>{t("privacy.overview.body")}</p>
+          </Section>
+
+          <Section heading={t("privacy.store.heading")}>
+            <ul className="list-disc pl-5 mt-2 space-y-1">
+              <li>{t("privacy.store.session")}</li>
+              <li>{t("privacy.store.rules")}</li>
+              <li>{t("privacy.store.language")}</li>
+            </ul>
+          </Section>
+
+          <Section heading={t("privacy.read.heading")}>
+            <ul className="list-disc pl-5 mt-2 space-y-1">
+              <li>{t("privacy.read.checkout")}</li>
+              <li>{t("privacy.read.impact")}</li>
+            </ul>
+          </Section>
+
+          <Section heading={t("privacy.gdpr.heading")}>
             <ul className="list-disc pl-5 mt-2 space-y-1">
               <li>
-                <strong>Session data:</strong> your shop domain, the access token Shopify issues to
-                CartGuard, and the permissions you granted. Required so the app can call Shopify on
-                your behalf. Deleted when you uninstall CartGuard, and when Shopify sends a{" "}
-                <code>shop/redact</code> request.
+                <PolicyTerm text={t("privacy.gdpr.dataRequest")} />
               </li>
               <li>
-                <strong>Your admin language choice:</strong> the language you pick, tied to your shop
-                domain. Deleted on uninstall or <code>shop/redact</code>.
+                <PolicyTerm text={t("privacy.gdpr.redact")} />
+              </li>
+              <li>
+                <PolicyTerm text={t("privacy.gdpr.shopRedact")} />
               </li>
             </ul>
-            <p className="mt-2">
-              Those two items are all this app stores in its database. It holds no customer names,
-              emails, addresses, phone numbers, or order contents.
-            </p>
-          </div>
+          </Section>
 
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Where your rules live</h2>
+          <Section heading={t("privacy.contact.heading")}>
             <p>
-              Your block rules, including any VIP allowlist entries you type, are saved as app-owned
-              metafields in your own store. They are not copied into our database.
+              <ContactSentence body={t("privacy.contact.body")} />
             </p>
-          </div>
-
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Data we read but don&apos;t store</h2>
-            <ul className="list-disc pl-5 mt-2 space-y-1">
-              <li>
-                <strong>At checkout:</strong> rules run inside Shopify as a Shopify Function. The
-                buyer&apos;s email, delivery address and cart are evaluated in memory and never reach
-                our servers.
-              </li>
-              <li>
-                <strong>Order check:</strong> when you run it, the app reads your 100 most recent
-                orders (email, shipping address, products) to estimate how many your rules would stop.
-                The result is shown to you and discarded; nothing is written to disk.
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Privacy requests</h2>
-            <ul className="list-disc pl-5 mt-2 space-y-1">
-              <li>
-                <strong>customers/data_request:</strong> we check whether the customer&apos;s email or
-                street addresses match your VIP allowlist and report the match count to you. The
-                addresses themselves are not logged.
-              </li>
-              <li>
-                <strong>customers/redact:</strong> we remove any matching email or street address from
-                your VIP allowlist.
-              </li>
-              <li>
-                <strong>shop/redact:</strong> we delete all session data and preferences for your shop.
-              </li>
-            </ul>
-            <p className="mt-2">
-              Each request is verified with Shopify&apos;s HMAC signature before we act on it. The app
-              holds no customer data of its own, so there is nothing further to delete.
-            </p>
-          </div>
-
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Sharing</h2>
-            <p>We do not sell or share personal data.</p>
-          </div>
-
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Contact</h2>
-            <p>
-              For privacy questions, email{" "}
-              <a href="mailto:support@cartguard.io" className="text-blue-600 hover:underline">
-                support@cartguard.io
-              </a>
-              .
-            </p>
-          </div>
+          </Section>
         </div>
       </div>
     </div>
