@@ -14,7 +14,7 @@ import { useI18n } from "../i18n/context";
 import type { MessageKey } from "../i18n/catalog";
 import { SectionBadge, useSectionStatusText } from "../components/section-status";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
-import { RULE_SECTIONS, SECTION_META, type RuleSection, type SectionSummary, summarizeSections } from "../lib/rule-summary";
+import { RULE_SECTIONS, SECTION_META, SECTION_TITLE_KEY, type RuleSection, type SectionSummary, summarizeSections } from "../lib/rule-summary";
 
 export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 
@@ -33,13 +33,6 @@ const SECTION_PHRASE_KEY: Record<RuleSection, MessageKey> = {
   address: "overview.phrase.address",
   quantity: "overview.phrase.quantity",
   vip: "overview.phrase.vip",
-};
-
-const SECTION_TITLE_KEY: Record<RuleSection, MessageKey> = {
-  geo: "section.geo.title",
-  address: "section.address.title",
-  quantity: "section.quantity.title",
-  vip: "section.vip.title",
 };
 
 type TFn = ReturnType<typeof useI18n>["t"];

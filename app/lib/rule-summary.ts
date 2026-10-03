@@ -11,11 +11,24 @@ import {
   type RuleConfig,
 } from "../../extensions/cartguard-validator/src/rules";
 import { countryName } from "./regions";
+import type { MessageKey } from "../i18n/catalog";
 
 export const RULE_SECTIONS = ["geo", "address", "quantity", "vip"] as const;
 export type RuleSection = (typeof RULE_SECTIONS)[number];
 
 export type SectionMeta = { title: string; description: string; anchor: string; flag: FeatureFlag };
+
+/**
+ * The catalog key for each section heading. Several pages render a section title
+ * (overview, order check, fix list), so the mapping lives here rather than being
+ * re-declared per route.
+ */
+export const SECTION_TITLE_KEY = {
+  geo: "section.geo.title",
+  address: "section.address.title",
+  quantity: "section.quantity.title",
+  vip: "section.vip.title",
+} as const satisfies Record<RuleSection, MessageKey>;
 
 export const SECTION_META: Record<RuleSection, SectionMeta> = {
   geo: {

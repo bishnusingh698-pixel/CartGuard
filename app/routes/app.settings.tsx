@@ -203,19 +203,17 @@ export default function SettingsPage() {
 }
 
 export function ErrorBoundary() {
+  const { t } = useI18n();
   const error = useRouteError();
   if (isRouteErrorResponse(error)) return boundary.error(error);
   return (
-    <Page title="Settings">
+    <Page title={t("settings.title")}>
       <Banner
         tone="critical"
-        title="CartGuard couldn't load settings"
-        action={{ content: "Try again", onAction: () => window.location.reload() }}
+        title={t("errors.failedToLoadSettings")}
+        action={{ content: t("common.tryAgain"), onAction: () => window.location.reload() }}
       >
-        <Text as="p">
-          Shopify didn&apos;t respond or returned an error. Your rules haven&apos;t changed and checkout keeps working. Try again in a
-          moment.
-        </Text>
+        <Text as="p">{t("common.shopifyUnresponsive")}</Text>
       </Banner>
     </Page>
   );

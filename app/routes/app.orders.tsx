@@ -27,11 +27,10 @@ import {
 } from "@shopify/polaris";
 
 import { useI18n } from "../i18n/context";
-import type { MessageKey } from "../i18n/catalog";
 import { friendlyErrorMessage } from "../lib/admin-api.server";
 import { type ImpactMatch, type ImpactResult, effectiveRaw, parseConfig, readConfiguration, simulateImpact } from "../lib/cartguard.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
-import { type RuleSection, formatShare, summarizeSections } from "../lib/rule-summary";
+import { type RuleSection, SECTION_TITLE_KEY, formatShare, summarizeSections } from "../lib/rule-summary";
 
 export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 
@@ -58,13 +57,6 @@ export async function action({ request }: ActionFunctionArgs) {
 const BLOCKING_SECTIONS: RuleSection[] = ["geo", "address", "quantity"];
 
 type TFn = ReturnType<typeof useI18n>["t"];
-
-const SECTION_TITLE_KEY = {
-  geo: "section.geo.title",
-  address: "section.address.title",
-  quantity: "section.quantity.title",
-  vip: "section.vip.title",
-} as const satisfies Record<RuleSection, MessageKey>;
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: "critical" | "success" }) {
   return (

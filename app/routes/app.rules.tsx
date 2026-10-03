@@ -15,7 +15,7 @@ import { json } from "@remix-run/node";
 import { isRouteErrorResponse, useBlocker, useFetcher, useLoaderData, useRouteError } from "@remix-run/react";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-remix/server";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Badge,
   Banner,
@@ -73,14 +73,15 @@ import {
   type LimitRow,
   type LimitTarget,
 } from "../lib/rule-editor";
+import { useI18n } from "../i18n/context";
 import {
   RULE_SECTIONS,
   SECTION_META,
+  SECTION_TITLE_KEY,
   type RuleSection,
   type SectionSummary,
   formatNumber,
   formatShare,
-  pluralize,
   summarizeSections,
 } from "../lib/rule-summary";
 import {
@@ -176,11 +177,12 @@ type RuleSectionCardProps = {
 };
 
 function RuleSectionCard({ section, summary, errorCount, serverError, onToggle, children }: RuleSectionCardProps) {
+  const { t } = useI18n();
   const meta = SECTION_META[section];
   // Entries stay saved while a section is off. If they need fixing, show them
   // anyway so a hidden problem can never block saving.
   const showBody = summary.enabled || errorCount > 0 || Boolean(serverError);
-  const toggleLabel = summary.enabled ? "Turn off" : "Turn on";
+  const toggleLabel = summary.enabled ? t("section.turnOff") : t("section.turnOn");
   return (
     <Layout.AnnotatedSection id={meta.anchor} title={meta.title} description={meta.description}>
       <Card>
@@ -194,7 +196,7 @@ function RuleSectionCard({ section, summary, errorCount, serverError, onToggle, 
                 {useSectionStatusText(summary)}
               </Text>
             </BlockStack>
-            <Button onClick={() => onToggle(!summary.enabled)} accessibilityLabel={`${toggleLabel} ${meta.title.toLowerCase()}`}>
+            <Button onClick={() => onToggle(!summary.enabled)} accessibilityLabel={`${toggleLabel}: ${t(SECTION_TITLE_KEY[section])}`}>
               {toggleLabel}
             </Button>
           </InlineStack>
@@ -205,7 +207,7 @@ function RuleSectionCard({ section, summary, errorCount, serverError, onToggle, 
           )}
           {!summary.enabled && showBody && (
             <Banner tone="warning">
-              <Text as="p">This section is off, but some of its entries need fixing before you can save.</Text>
+              <Text as="p">{t("section.offButInvalid.title")}</Text>
             </Banner>
           )}
           {showBody && (
@@ -220,10 +222,14 @@ function RuleSectionCard({ section, summary, errorCount, serverError, onToggle, 
   );
 }
 
-const MATCH_OPTIONS = [
-  { label: "Address contains this text", value: "contains" },
-  { label: "Advanced: address matches a pattern", value: "pattern" },
-];
+type TFn = ReturnType<typeof useI18n>["t"];
+
+function matchOptions(t: TFn) {
+  return [
+    { label: t("address.match.contains"), value: "contains" },
+    { label: t("address.match.pattern"), value: "pattern" },
+  ];
+}
 
 type AddressRuleEditorProps = {
   row: AddressRuleRow;
@@ -235,6 +241,7 @@ type AddressRuleEditorProps = {
 };
 
 function AddressRuleEditor({ row, index, errors, countryOptions, onChange, onRemove }: AddressRuleEditorProps) {
+  const { t, number } = useI18n();
   // Keep a country saved by an older version selectable even if it's not in the list.
   const options =
     row.country && !countryOptions.some((option) => option.value === row.country)
@@ -248,21 +255,19 @@ function AddressRuleEditor({ row, index, errors, countryOptions, onChange, onRem
           <Text as="h4" variant="headingSm">
             Address {index + 1}
           </Text>
-          <Button variant="plain" tone="critical" onClick={onRemove} accessibilityLabel={`Remove address ${index + 1}`}>
-            Remove
+          <Button variant="plain" tone="critical" onClick={onRemove} accessibilityLabel={t("address.row.remove", { index: number(index + 1) })}>
+            {t("common.remove")}
           </Button>
         </InlineStack>
         <InlineGrid columns={{ xs: 1, md: ["oneThird", "twoThirds"] }} gap="300">
-          <Select label="Block when" options={MATCH_OPTIONS} value={row.match} onChange={(value) => onChange({ match: value as AddressMatch })} />
+          <Select label={t("address.blockWhen")} options={matchOptions(t)} value={row.match} onChange={(value) => onChange({ match: value as AddressMatch })} />
           <TextField
-            label={isPattern ? "Pattern" : "Text to look for"}
+            label={isPattern ? t("address.patternLabel") : t("address.textLabel")}
             value={row.text}
             onChange={(text) => onChange({ text })}
-            placeholder={isPattern ? "\\bunit\\s+\\d+" : "Calle 5, Avenida Central"}
+            placeholder={isPattern ? t("address.patternPlaceholder") : t("address.textPlaceholder")}
             helpText={
-              isPattern
-                ? "For technical users: a regular expression, not case-sensitive."
-                : "Checked against both address lines and the city. Capitals and accents don't matter."
+              isPattern ? t("address.patternHelp") : t("address.textHelp")
             }
             monospaced={isPattern}
             error={errors?.text}
@@ -271,23 +276,23 @@ function AddressRuleEditor({ row, index, errors, countryOptions, onChange, onRem
         </InlineGrid>
         <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
           <Select
-            label="Only in this country"
+            label={t("address.countryLabel")}
             options={options}
             value={row.country}
             onChange={(country) => onChange({ country })}
             error={errors?.country}
           />
           <TextField
-            label="Only in this city (optional)"
+            label={t("address.cityLabel")}
             value={row.city}
             onChange={(city) => onChange({ city })}
-            placeholder="Leave blank for every city"
+            placeholder={t("address.cityPlaceholder")}
             error={errors?.city}
             autoComplete="off"
           />
         </InlineGrid>
         <TextField
-          label="Message customers see (optional)"
+          label={t("address.messageLabel")}
           value={row.message}
           onChange={(message) => onChange({ message })}
           placeholder={DEFAULT_ADDRESS_MESSAGE}
@@ -300,11 +305,13 @@ function AddressRuleEditor({ row, index, errors, countryOptions, onChange, onRem
   );
 }
 
-const TARGET_OPTIONS = [
-  { label: "Products with a tag", value: "tag" },
-  { label: "One product", value: "product" },
-  { label: "Every product", value: "all" },
-];
+function targetOptions(t: TFn) {
+  return [
+    { label: t("quantity.target.tag"), value: "tag" },
+    { label: t("quantity.target.product"), value: "product" },
+    { label: t("quantity.target.all"), value: "all" },
+  ];
+}
 
 type LimitEditorProps = {
   row: LimitRow;
@@ -315,6 +322,7 @@ type LimitEditorProps = {
 };
 
 function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProps) {
+  const { t, number } = useI18n();
   const everyProduct = row.target === "all";
   const max = Number(row.max);
   const exampleMax = Number.isInteger(max) && max > 0 ? formatNumber(max) : "10";
@@ -323,52 +331,52 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
       <BlockStack gap="300">
         <InlineStack align="space-between" blockAlign="center">
           <Text as="h4" variant="headingSm">
-            Limit {index + 1}
+            {t("quantity.row.title", { index: number(index + 1) })}
           </Text>
-          <Button variant="plain" tone="critical" onClick={onRemove} accessibilityLabel={`Remove limit ${index + 1}`}>
-            Remove
+          <Button variant="plain" tone="critical" onClick={onRemove} accessibilityLabel={t("quantity.row.remove", { index: number(index + 1) })}>
+            {t("common.remove")}
           </Button>
         </InlineStack>
         <InlineGrid columns={{ xs: 1, md: everyProduct ? 2 : 3 }} gap="300">
           <Select
-            label="Applies to"
-            options={TARGET_OPTIONS}
+            label={t("quantity.appliesTo")}
+            options={targetOptions(t)}
             value={row.target}
             onChange={(value) => onChange({ target: value as LimitTarget })}
-            helpText={everyProduct ? "Covers the whole order, including its total value." : undefined}
+            helpText={everyProduct ? t("quantity.allHelp") : undefined}
           />
           {!everyProduct && (
             <TextField
-              label={row.target === "tag" ? "Product tag" : "Product ID"}
+              label={row.target === "tag" ? t("quantity.tagLabel") : t("quantity.productLabel")}
               value={row.value}
               onChange={(value) => onChange({ value })}
-              placeholder={row.target === "tag" ? "limited-edition" : "8123456789"}
-              helpText={row.target === "tag" ? "Exactly as it appears on your products." : "The number at the end of the product's page address."}
+              placeholder={row.target === "tag" ? t("quantity.placeholderTag") : t("quantity.placeholderProduct")}
+              helpText={row.target === "tag" ? t("quantity.placeholderTagHelp") : t("quantity.placeholderProductHelp")}
               error={errors?.value}
               autoComplete="off"
             />
           )}
           <TextField
-            label="At least this many units"
+            label={t("quantity.minUnits")}
             type="number"
             min={0}
             max={MAX_UNITS}
             step={1}
             value={row.min}
             onChange={(value) => onChange({ min: value })}
-            placeholder="Leave blank for no minimum"
+            placeholder={t("quantity.placeholderMin")}
             error={errors?.min}
             autoComplete="off"
           />
           <TextField
-            label="At most this many units"
+            label={t("quantity.maxUnits")}
             type="number"
             min={0}
             max={MAX_UNITS}
             step={1}
             value={row.max}
             onChange={(value) => onChange({ max: value })}
-            placeholder="Leave blank for no maximum"
+            placeholder={t("quantity.placeholderMax")}
             error={errors?.max}
             autoComplete="off"
           />
@@ -376,41 +384,41 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
         {everyProduct && (
           <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
             <TextField
-              label="Order total must be at least"
+              label={t("quantity.minAmount")}
               type="number"
               min={0}
               max={MAX_ORDER_AMOUNT}
               step={0.01}
               value={row.minAmount}
               onChange={(value) => onChange({ minAmount: value })}
-              placeholder="Leave blank for no minimum"
-              helpText="In your shop currency."
+              placeholder={t("quantity.placeholderMin")}
+              helpText={t("quantity.currencyHelp")}
               error={errors?.minAmount}
               autoComplete="off"
             />
             <TextField
-              label="Order total must be at most"
+              label={t("quantity.maxAmount")}
               type="number"
               min={0}
               max={MAX_ORDER_AMOUNT}
               step={0.01}
               value={row.maxAmount}
               onChange={(value) => onChange({ maxAmount: value })}
-              placeholder="Leave blank for no maximum"
-              helpText="In your shop currency."
+              placeholder={t("quantity.placeholderMax")}
+              helpText={t("quantity.currencyHelp")}
               error={errors?.maxAmount}
               autoComplete="off"
             />
           </InlineGrid>
         )}
         <TextField
-          label="Message customers see (optional)"
+          label={t("quantity.messageLabel")}
           value={row.message}
           onChange={(message) => onChange({ message })}
           placeholder={
             everyProduct && !row.min.trim() && !row.max.trim()
-              ? "Orders over this amount can't be placed online. Please contact us for help."
-              : `You can buy up to ${exampleMax} of this item per order. Please reduce the quantity.`
+              ? t("quantity.autoMessageOverAmount")
+              : t("quantity.autoMessageReduceUnits", { count: exampleMax })
           }
           maxLength={MESSAGE_MAX_LENGTH}
           showCharacterCount
@@ -423,15 +431,20 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
 }
 
 function ImpactSummary({ impact }: { impact: ImpactResult }) {
+  const { t, number } = useI18n();
   if (impact.scanned === 0) {
-    return <Text as="p">You don&apos;t have any orders to test against yet. These rules still apply to new checkouts.</Text>;
+    return <Text as="p">{t("impact.noOrdersToTest")}</Text>;
   }
   return (
     <BlockStack gap="200">
       <Text as="p" fontWeight="semibold">
         {impact.blocked === 0
-          ? `None of your last ${formatNumber(impact.scanned)} orders would have been stopped.`
-          : `${formatNumber(impact.blocked)} of your last ${formatNumber(impact.scanned)} orders (${formatShare(impact.blocked, impact.scanned)}) would have been stopped.`}
+          ? t("impact.clean", { count: number(impact.scanned) })
+          : t("impact.blockedOf", {
+              blocked: number(impact.blocked),
+              total: number(impact.scanned),
+              share: formatShare(impact.blocked, impact.scanned),
+            })}
       </Text>
       {impact.samples.length > 0 && (
         <List>
@@ -441,38 +454,75 @@ function ImpactSummary({ impact }: { impact: ImpactResult }) {
         </List>
       )}
       <Text as="p" variant="bodySm" tone="subdued">
-        Checks up to 40 products per order. Nothing was changed.
+        {t("rules.impactLimited")}
       </Text>
     </BlockStack>
   );
 }
 
 function ValidationStatusBanner({ status, onActivate, busy }: { status: ValidationStatus; onActivate: () => void; busy: boolean }) {
+  const { t } = useI18n();
   if (status.state === "active") return null;
   if (status.state === "function_not_deployed") {
     return (
-      <Banner tone="critical" title="CartGuard's checkout protection isn't installed yet">
+      <Banner tone="critical" title={t("rules.validationMissing.title")}>
         <Text as="p">
-          This usually resolves within a few minutes of installing CartGuard. If it doesn&apos;t, reinstall the app or email support@cartguard.io. Until then, no checkout is blocked.
+          {t("rules.validationMissing.body")}
         </Text>
       </Banner>
     );
   }
   if (status.state === "unknown") {
     return (
-      <Banner tone="warning" title="We couldn't check whether CartGuard is active at checkout" action={{ content: "Reload", onAction: () => window.location.reload() }}>
-        <Text as="p">{status.message ?? "Try reloading the page in a moment."}</Text>
+      <Banner
+        tone="warning"
+        title={t("rules.validationUnknown.title")}
+        action={{ content: t("common.reload"), onAction: () => window.location.reload() }}
+      >
+        <Text as="p">{status.message ?? t("rules.validationUnknown.body")}</Text>
       </Banner>
     );
   }
   return (
     <Banner
       tone="warning"
-      title="CartGuard isn't protecting checkout yet"
-      action={{ content: busy ? "Saving…" : "Save and turn on", onAction: () => { if (!busy) onActivate(); } }}
+      title={t("rules.notActive.title")}
+      action={{
+        content: busy ? t("rules.confirm.saving") : t("rules.notActive.saveAndTurnOn"),
+        onAction: () => {
+          if (!busy) onActivate();
+        },
+      }}
     >
-      <Text as="p">Save your rules to switch protection on. Until then, no checkout is blocked.</Text>
+      <Text as="p">{t("rules.notActive.body")}</Text>
     </Banner>
+  );
+}
+
+/**
+ * `rules.fixList.item` is "{section}: {count} to fix", where the section title is
+ * itself a clickable link. Rendering the placeholder as a string would lose the
+ * anchor, so the sentence is split around it and the title is spliced in as an
+ * element, letting translators keep their own word order.
+ */
+const SECTION_SLOT = String.fromCharCode(0);
+
+function FixListRow({ section, count, onJump }: { section: RuleSection; count: number; onJump: () => void }) {
+  const { t } = useI18n();
+  const title = t(SECTION_TITLE_KEY[section]);
+  const parts = t("rules.fixList.item", { section: SECTION_SLOT, count }).split(SECTION_SLOT);
+  return (
+    <>
+      {parts.map((part, index) =>
+        part === "" && parts.length > 1 ? (
+          <Link key={index} onClick={onJump} removeUnderline>
+            {title}
+          </Link>
+        ) : (
+          <Fragment key={index}>{part}</Fragment>
+        ),
+      )}
+    </>
   );
 }
 
@@ -483,6 +533,7 @@ function jumpTo(section: RuleSection) {
 /* Page */
 
 export default function BlockRulesPage() {
+  const { t, number } = useI18n();
   const { config, validation, needsMigration } = useLoaderData<typeof loader>() as unknown as RulesState;
   const fetcher = useFetcher<ActionResponse>();
   const shopify = useAppBridge();
@@ -583,17 +634,17 @@ export default function BlockRulesPage() {
   const saving = busy && pendingIntent === "save";
   const testing = busy && pendingIntent === "simulate";
 
-  const primaryAction = { content: "Save", onAction: () => submit("save"), disabled: !canSave, loading: saving };
+  const primaryAction = { content: t("common.save"), onAction: () => submit("save"), disabled: !canSave, loading: saving };
   const secondaryActions = [
-    { content: "Test on recent orders", onAction: () => submit("simulate"), disabled: busy, loading: testing },
-    ...(dirty ? [{ content: "Discard changes", onAction: discard, disabled: busy }] : []),
+    { content: t("rules.test"), onAction: () => submit("simulate"), disabled: busy, loading: testing },
+    ...(dirty ? [{ content: t("rules.discard"), onAction: discard, disabled: busy }] : []),
   ];
 
   return (
     <Page
-      title="Block rules"
-      subtitle="Choose which orders CartGuard stops at checkout."
-      titleMetadata={dirty ? <Badge tone="attention">Unsaved changes</Badge> : undefined}
+      title={t("rules.title")}
+      subtitle={t("rules.subtitle")}
+      titleMetadata={dirty ? <Badge tone="attention">{t("rules.unsaved")}</Badge> : undefined}
       primaryAction={primaryAction}
       secondaryActions={secondaryActions}
     >
@@ -602,11 +653,11 @@ export default function BlockRulesPage() {
           <Layout.Section>
             <Banner
               tone="warning"
-              title="You have unsaved changes"
-              action={{ content: "Stay and keep editing", onAction: () => blocker.reset?.() }}
-              secondaryAction={{ content: "Leave without saving", onAction: () => blocker.proceed?.() }}
+              title={t("rules.blocker.title")}
+              action={{ content: t("rules.blocker.stay"), onAction: () => blocker.reset?.() }}
+              secondaryAction={{ content: t("rules.blocker.leave"), onAction: () => blocker.proceed?.() }}
             >
-              <Text as="p">If you leave this page now, your changes to the block rules will be lost.</Text>
+              <Text as="p">{t("rules.blocker.body")}</Text>
             </Banner>
           </Layout.Section>
         )}
@@ -619,10 +670,8 @@ export default function BlockRulesPage() {
 
         {needsMigration && !result?.saved && (
           <Layout.Section>
-            <Banner tone="warning" title="Save once to apply these rules at checkout">
-              <Text as="p">
-                These rules were saved by an older version of CartGuard and aren&apos;t enforced at checkout yet. Review them and click Save.
-              </Text>
+            <Banner tone="warning" title={t("rules.migration.title")}>
+              <Text as="p">{t("rules.migration.body")}</Text>
             </Banner>
           </Layout.Section>
         )}
@@ -631,13 +680,13 @@ export default function BlockRulesPage() {
           <Layout.Section>
             <Banner
               tone="critical"
-              title={`Fix ${pluralize(errors.total, "field")} before continuing`}
+              title={t("rules.fixList.title", { count: number(errors.total) })}
               onDismiss={() => setShowFixList(false)}
             >
               <List>
                 {RULE_SECTIONS.filter((section) => errors.bySection[section] > 0).map((section) => (
                   <List.Item key={section}>
-                    <Link onClick={() => jumpTo(section)}>{SECTION_META[section].title}</Link>: {pluralize(errors.bySection[section], "field")} to fix
+                    <FixListRow section={section} count={errors.bySection[section]} onJump={() => jumpTo(section)} />
                   </List.Item>
                 ))}
               </List>
@@ -647,18 +696,18 @@ export default function BlockRulesPage() {
 
         {result?.saved && !result.validationWarning && (
           <Layout.Section>
-            <Banner tone="success" title="Rules saved and active at checkout" onDismiss={() => setResult(null)}>
-              <Text as="p">CartGuard now checks every checkout with these rules.</Text>
+            <Banner tone="success" title={t("rules.savedBanner.title")} onDismiss={() => setResult(null)}>
+              <Text as="p">{t("rules.savedBanner.body")}</Text>
             </Banner>
           </Layout.Section>
         )}
 
         {result?.saved && result.validationWarning && (
           <Layout.Section>
-            <Banner tone="warning" title="Rules saved, but CartGuard couldn't be turned on at checkout" onDismiss={() => setResult(null)}>
+            <Banner tone="warning" title={t("rules.warningBanner.title")} onDismiss={() => setResult(null)}>
               <BlockStack gap="200">
                 <Text as="p">{result.validationWarning}</Text>
-                <Text as="p">Fix the problem above and save again. Until then, checkout isn&apos;t protected.</Text>
+                <Text as="p">{t("rules.warningBanner.hint")}</Text>
               </BlockStack>
             </Banner>
           </Layout.Section>
@@ -668,9 +717,14 @@ export default function BlockRulesPage() {
           <Layout.Section>
             <Banner
               tone="warning"
-              title="Review the impact before saving"
-              action={{ content: busy ? "Saving…" : "Save anyway", onAction: () => { if (!busy) submit("save", true); } }}
-              secondaryAction={{ content: "Cancel", onAction: () => setResult(null) }}
+              title={t("rules.confirm.title")}
+              action={{
+                content: busy ? t("rules.confirm.saving") : t("rules.confirm.save"),
+                onAction: () => {
+                  if (!busy) submit("save", true);
+                },
+              }}
+              secondaryAction={{ content: t("common.cancel"), onAction: () => setResult(null) }}
               onDismiss={() => setResult(null)}
             >
               {result.impactError ? <Text as="p">{result.impactError}</Text> : result.impact ? <ImpactSummary impact={result.impact} /> : null}
@@ -680,7 +734,7 @@ export default function BlockRulesPage() {
 
         {result?.ok && !result.saved && !result.needsConfirm && result.impact && (
           <Layout.Section>
-            <Banner tone={result.impact.blocked > 0 ? "warning" : "success"} title="Test on recent orders" onDismiss={() => setResult(null)}>
+            <Banner tone={result.impact.blocked > 0 ? "warning" : "success"} title={t("rules.impactTested.title")} onDismiss={() => setResult(null)}>
               <ImpactSummary impact={result.impact} />
             </Banner>
           </Layout.Section>
@@ -712,43 +766,43 @@ export default function BlockRulesPage() {
         >
           <BlockStack gap="500">
             <CountryPicker
-              label="Block orders shipping to these countries"
-              helpText="This also applies to trusted customers."
+              label={t("fields.countries.label")}
+              helpText={t("fields.countries.help")}
               values={state.countries}
               onChange={(countries) => update({ countries })}
               error={listError(LIST_FIELD_IDS.countries)}
             />
             <RegionPicker
-              label="Block orders shipping to these states or provinces"
+              label={t("fields.states.label")}
               values={state.states}
               onChange={(states) => update({ states })}
               error={listError(LIST_FIELD_IDS.states)}
             />
             <ListField
-              label="Block orders shipping to these cities"
+              label={t("fields.cities.label")}
               listName="blocked cities"
-              helpText="Capitals, accents and punctuation don't matter. Separate several with commas."
-              placeholder="San José"
+              helpText={t("fields.cities.help")}
+              placeholder={t("fields.cities.placeholder")}
               values={state.cities}
               onChange={(cities) => update({ cities })}
               parse={withCountryScope(parseCity, cityCountry)}
               format={describeScopedEntry}
-              emptyText="No cities blocked."
+              emptyText={t("fields.cities.empty")}
               error={listError(LIST_FIELD_IDS.cities)}
-              scope={<Select label="Country for new cities" labelHidden options={countryOptions} value={cityCountry} onChange={setCityCountry} />}
+              scope={<Select label={t("fields.cities.scope")} labelHidden options={countryOptions} value={cityCountry} onChange={setCityCountry} />}
             />
             <ListField
-              label="Block orders shipping to these postal codes"
+              label={t("fields.zips.label")}
               listName="blocked postal codes"
-              helpText="Spaces and dashes don't matter, and US ZIP+4 codes match their 5-digit ZIP. Separate several with commas."
+              helpText={t("fields.zips.help")}
               placeholder="90210"
               values={state.zips}
               onChange={(zips) => update({ zips })}
               parse={withCountryScope(parseZip, zipCountry)}
               format={describeScopedEntry}
-              emptyText="No postal codes blocked."
+              emptyText={t("fields.zips.empty")}
               error={listError(LIST_FIELD_IDS.zips)}
-              scope={<Select label="Country for new postal codes" labelHidden options={countryOptions} value={zipCountry} onChange={setZipCountry} />}
+              scope={<Select label={t("fields.zips.scope")} labelHidden options={countryOptions} value={zipCountry} onChange={setZipCountry} />}
             />
           </BlockStack>
         </RuleSectionCard>
@@ -767,27 +821,27 @@ export default function BlockRulesPage() {
                 Common risky addresses
               </Text>
               <Checkbox
-                label="Block PO Boxes"
-                helpText="Catches P.O. Box, Post Office Box, Apartado Postal and Postfach, including common misspellings."
+                label={t("address.poBox.label")}
+                helpText={t("address.poBox.help")}
                 checked={state.checks.po_box}
                 onChange={(checked) => setCheck("po_box", checked)}
               />
               <Checkbox
-                label="Block US military addresses"
-                helpText="APO, FPO and DPO addresses in the United States."
+                label={t("address.military.label")}
+                helpText={t("address.military.help")}
                 checked={state.checks.military}
                 onChange={(checked) => setCheck("military", checked)}
               />
             </BlockStack>
             <ListField
-              label="Block addresses containing these words"
+              label={t("fields.keywords.label")}
               listName="blocked words"
               helpText='For example "mail drop" or "warehouse 4B". Capitals and accents don&apos;t matter.'
               placeholder="mail drop"
               values={state.keywords}
               onChange={(keywords) => update({ keywords })}
               parse={parseKeyword}
-              emptyText="No blocked words."
+              emptyText={t("fields.keywords.empty")}
               error={listError(LIST_FIELD_IDS.keywords)}
             />
             <BlockStack gap="300">
@@ -816,7 +870,7 @@ export default function BlockRulesPage() {
                 />
               ))}
               <InlineStack>
-                <Button onClick={() => update({ addressRules: [...state.addressRules, newAddressRule()] })}>Add an address</Button>
+                <Button onClick={() => update({ addressRules: [...state.addressRules, newAddressRule()] })}>{t("address.specific.add")}</Button>
               </InlineStack>
             </BlockStack>
           </BlockStack>
@@ -847,7 +901,7 @@ export default function BlockRulesPage() {
               />
             ))}
             <InlineStack>
-              <Button onClick={() => update({ limits: [...state.limits, newLimit()] })}>Add a limit</Button>
+              <Button onClick={() => update({ limits: [...state.limits, newLimit()] })}>{t("quantity.add")}</Button>
             </InlineStack>
           </BlockStack>
         </RuleSectionCard>
@@ -862,26 +916,26 @@ export default function BlockRulesPage() {
         >
           <BlockStack gap="500">
             <ListField
-              label="Trusted customer emails"
+              label={t("fields.vipEmails.label")}
               listName="trusted emails"
-              helpText="Customers signed in with these account emails skip every rule except blocked countries. Guests who just type the email don't."
+              helpText={t("fields.vipEmails.help")}
               placeholder="customer@example.com"
               values={state.vipEmails}
               onChange={(vipEmails) => update({ vipEmails })}
               parse={parseVipEmail}
-              emptyText="No trusted emails."
+              emptyText={t("fields.vipEmails.empty")}
               error={listError(LIST_FIELD_IDS.vipEmails)}
             />
             <ListField
-              label="Trusted street addresses"
+              label={t("fields.vipAddresses.label")}
               listName="trusted addresses"
-              helpText="Must match address line 1 exactly. Only skips the address checks, not quantity limits or blocked areas."
+              helpText={t("fields.vipAddresses.help")}
               placeholder="123 Executive Blvd"
               values={state.vipAddresses}
               onChange={(vipAddresses) => update({ vipAddresses })}
               parse={parseVipAddress}
               allowMany={false}
-              emptyText="No trusted addresses."
+              emptyText={t("fields.vipAddresses.empty")}
               error={listError(LIST_FIELD_IDS.vipAddresses)}
             />
           </BlockStack>
@@ -900,18 +954,17 @@ export default function BlockRulesPage() {
  * responses still go through the Shopify boundary so re-auth works.
  */
 export function ErrorBoundary() {
+  const { t } = useI18n();
   const error = useRouteError();
   if (isRouteErrorResponse(error)) return boundary.error(error);
   return (
-    <Page title="Block rules">
+    <Page title={t("rules.title")}>
       <Banner
         tone="critical"
-        title="CartGuard couldn't load your rules"
-        action={{ content: "Try again", onAction: () => window.location.reload() }}
+        title={t("errors.failedToLoadRules")}
+        action={{ content: t("common.tryAgain"), onAction: () => window.location.reload() }}
       >
-        <Text as="p">
-          Shopify didn&apos;t respond or returned an error. Your rules haven&apos;t changed and checkout keeps working. Try again in a moment. If this keeps happening, email support@cartguard.io.
-        </Text>
+        <Text as="p">{t("common.shopifyUnresponsive")}</Text>
       </Banner>
     </Page>
   );
