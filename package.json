@@ -8,6 +8,7 @@
     "dev": "remix vite:dev --host 0.0.0.0 --port 3000",
     "start": "remix-serve ./build/server/index.js",
     "setup": "prisma generate",
+    "db:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate",
     "lint": "eslint --ignore-path .gitignore --ext .js,.jsx,.ts,.tsx .",
     "typecheck": "tsc",

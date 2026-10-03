@@ -18,7 +18,7 @@ npm install
 npm run function:install
 cp .env.example .env    # fill in the values
 npm run setup           # prisma generate
-npx prisma migrate deploy
+npm run db:deploy
 ```
 
 Set `application_url` in `shopify.app.toml` to your tunnel URL, then run
@@ -78,10 +78,12 @@ chosen admin language. See `app/routes/privacy.tsx` for the full statement.
 
 ## Deployment
 
-`render.yaml` deploys to Render: builds with `npm install --include=dev && npm
-run build`, starts with `remix-serve`, and health-checks `/api/ping`. Set
-`DATABASE_URL`, `SHOPIFY_API_KEY` and `SHOPIFY_API_SECRET` in the Render
-dashboard. On the free plan, point an uptime pinger at `/api/ping` every 5-10
+`render.yaml` deploys to Render. The build runs `npm install --include=dev &&
+npm run build`; the start command runs `prisma migrate deploy && npm start`, so
+schema changes apply on each boot and a fresh database gets its tables. The
+health check hits `/api/ping`. Set `DATABASE_URL`, `SHOPIFY_API_KEY` and
+`SHOPIFY_API_SECRET` in the Render dashboard, with `sync: false` so they are not
+committed. On the free plan, point an uptime pinger at `/api/ping` every 5-10
 minutes so the instance does not sleep.
 
 The app is embedded (`embedded = true` in `shopify.app.toml`), so

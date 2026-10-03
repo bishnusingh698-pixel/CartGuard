@@ -9,7 +9,10 @@ services:
     region: ohio
     # --include=dev: NODE_ENV=production would otherwise skip the build tools.
     buildCommand: npm install --include=dev && npm run build
-    startCommand: npm start
+    # migrate deploy applies pending migrations on every boot. It is idempotent
+    # and a no-op when the schema is current, so there is no separate release
+    # step to forget. A fresh database would otherwise start with no tables.
+    startCommand: npm run db:deploy && npm start
     healthCheckPath: /api/ping
     envVars:
       - key: NODE_ENV
