@@ -26,6 +26,8 @@ import {
   Button,
 } from "@shopify/polaris";
 
+import { useI18n } from "../i18n/context";
+import type { MessageKey } from "../i18n/catalog";
 import { friendlyErrorMessage } from "../lib/admin-api.server";
 import { type ImpactMatch, type ImpactResult, effectiveRaw, parseConfig, readConfiguration, simulateImpact } from "../lib/cartguard.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
@@ -55,6 +57,15 @@ export async function action({ request }: ActionFunctionArgs) {
 
 const BLOCKING_SECTIONS: RuleSection[] = ["geo", "address", "quantity"];
 
+type TFn = ReturnType<typeof useI18n>["t"];
+
+const SECTION_TITLE_KEY = {
+  geo: "section.geo.title",
+  address: "section.address.title",
+  quantity: "section.quantity.title",
+  vip: "section.vip.title",
+} as const satisfies Record<RuleSection, MessageKey>;
+
 function Stat({ label, value, tone }: { label: string; value: string; tone?: "critical" | "success" }) {
   return (
     <BlockStack gap="100">
@@ -68,7 +79,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "cr
   );
 }
 
-function orderCell(match: ImpactMatch, isDemo: boolean): ReactNode {
+function orderCell(match: ImpactMatch, isDemo: boolean, t: TFn): ReactNode {
   if (isDemo || !match.orderId) {
     return (
       <Text as="span" fontWeight="semibold">
@@ -78,18 +89,18 @@ function orderCell(match: ImpactMatch, isDemo: boolean): ReactNode {
   }
   // App Bridge opens shopify://admin links in the Shopify admin.
   return (
-    <Link url={`shopify://admin/orders/${match.orderId}`} removeUnderline accessibilityLabel={`Open order ${match.name} in Shopify`}>
+    <Link url={`shopify://admin/orders/${match.orderId}`} removeUnderline accessibilityLabel={t("orders.openOrder", { name: match.name })}>
       {match.name}
     </Link>
   );
 }
 
-function reasonCell(match: ImpactMatch): ReactNode {
+function reasonCell(match: ImpactMatch, t: TFn): ReactNode {
   return (
     <BlockStack gap="100">
       <InlineStack gap="100" wrap>
         {match.sections.map((section) => (
-          <Badge key={section}>{SECTION_META[section].title}</Badge>
+          <Badge key={section}>{t(SECTION_TITLE_KEY[section])}</Badge>
         ))}
       </InlineStack>
       {match.reasons.map((reason, index) => (
@@ -101,12 +112,12 @@ function reasonCell(match: ImpactMatch): ReactNode {
   );
 }
 
-function LoadingState() {
+function LoadingState({ t }: { t: TFn }) {
   return (
     <Card>
       <BlockStack gap="400">
         <Text as="p" visuallyHidden>
-          Checking your recent orders…
+          {t("orders.checking")}
         </Text>
         <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
           <SkeletonDisplayText size="small" />
@@ -119,16 +130,16 @@ function LoadingState() {
   );
 }
 
-function Results({ impact, isDemo }: { impact: ImpactResult; isDemo: boolean }) {
+function Results({ impact, isDemo, t, number }: { impact: ImpactResult; isDemo: boolean; t: TFn; number: (n: number) => string }) {
   if (impact.scanned === 0) {
     return (
       <Card>
         <BlockStack gap="200">
           <Text as="h2" variant="headingMd">
-            No orders to check yet
+            {t("orders.empty.title")}
           </Text>
           <Text as="p" tone="subdued">
-            Once customers start ordering, come back here to see how your rules would treat them. Your rules already apply to new checkouts.
+            {t("orders.empty.body")}
           </Text>
         </BlockStack>
       </Card>
@@ -136,7 +147,7 @@ function Results({ impact, isDemo }: { impact: ImpactResult; isDemo: boolean }) 
   }
 
   const reasons = BLOCKING_SECTIONS.filter((section) => impact.bySection[section] > 0)
-    .map((section) => `${SECTION_META[section].title}: ${formatNumber(impact.bySection[section])}`)
+    .map((section) => `${t(SECTION_TITLE_KEY[section])}: ${number(impact.bySection[section])}`)
     .join(" · ");
 
   return (
@@ -144,28 +155,28 @@ function Results({ impact, isDemo }: { impact: ImpactResult; isDemo: boolean }) 
       <Card>
         <BlockStack gap="400">
           <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
-            <Stat label="Orders checked" value={formatNumber(impact.scanned)} />
-            <Stat label="Would be stopped" value={formatNumber(impact.blocked)} tone={impact.blocked > 0 ? "critical" : "success"} />
-            <Stat label="Share of orders" value={formatShare(impact.blocked, impact.scanned)} />
+            <Stat label={t("orders.checked")} value={number(impact.scanned)} />
+            <Stat label={t("orders.wouldStop")} value={number(impact.blocked)} tone={impact.blocked > 0 ? "critical" : "success"} />
+            <Stat label={t("orders.share")} value={formatShare(impact.blocked, impact.scanned, t("orders.lessThanOnePercent"))} />
           </InlineGrid>
           {reasons && (
             <Text as="p" variant="bodySm" tone="subdued">
-              By rule type: {reasons}
+              {t("orders.byRuleType", { reasons })}
             </Text>
           )}
         </BlockStack>
       </Card>
 
       {impact.matches.length === 0 ? (
-        <Banner tone="success" title="None of these orders would have been stopped">
-          <Text as="p">Your rules let all of your recent orders through.</Text>
+        <Banner tone="success" title={t("orders.clean.title")}>
+          <Text as="p">{t("orders.clean.body")}</Text>
         </Banner>
       ) : (
         <Card padding="0">
           <DataTable
             columnContentTypes={["text", "text", "text"]}
-            headings={["Order", "Ships to", "Why it would be stopped"]}
-            rows={impact.matches.map((match) => [orderCell(match, isDemo), match.shipTo, reasonCell(match)])}
+            headings={[t("orders.heading.order"), t("orders.heading.shipsTo"), t("orders.heading.reason")]}
+            rows={impact.matches.map((match) => [orderCell(match, isDemo, t), match.shipTo, reasonCell(match, t)])}
             verticalAlign="top"
           />
         </Card>
@@ -175,6 +186,7 @@ function Results({ impact, isDemo }: { impact: ImpactResult; isDemo: boolean }) 
 }
 
 export default function OrderCheckPage() {
+  const { t, number, dateTime } = useI18n();
   const { config, isDemo, needsMigration } = useLoaderData<typeof loader>() as unknown as RulesState;
   const fetcher = useFetcher<CheckResponse>();
   const summaries = useMemo(() => summarizeSections(config), [config]);
@@ -194,9 +206,7 @@ export default function OrderCheckPage() {
     }
   }, [hasRules, run]);
 
-  const checkedAt = data?.checkedAt
-    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(data.checkedAt))
-    : null;
+  const checkedAt = data?.checkedAt ? dateTime(data.checkedAt) : null;
 
   let body: ReactNode;
   if (!hasRules) {
@@ -204,52 +214,51 @@ export default function OrderCheckPage() {
       <Card>
         <BlockStack gap="300">
           <Text as="h2" variant="headingMd">
-            No block rules to test yet
+            {t("orders.noRules.title")}
           </Text>
           <Text as="p" tone="subdued">
-            Turn on a country, address or quantity rule, then come back to see which recent orders it would stop.
+            {t("orders.noRules.body")}
           </Text>
           <InlineStack>
             <Button variant="primary" url="/app/rules">
-              Add a block rule
+              {t("orders.noRules.action")}
             </Button>
           </InlineStack>
         </BlockStack>
       </Card>
     );
   } else if (busy || !data) {
-    body = <LoadingState />;
+    body = <LoadingState t={t} />;
   } else if (!data.ok || !data.impact) {
     body = (
-      <Banner tone="critical" title="The order check didn't finish" action={{ content: "Try again", onAction: run }}>
-        <Text as="p">{data.message ?? "Shopify didn't respond. Try again in a moment."}</Text>
+      <Banner tone="critical" title={t("orders.failed")} action={{ content: t("common.tryAgain"), onAction: run }}>
+        <Text as="p">{data.message ?? t("orders.failedHint")}</Text>
       </Banner>
     );
   } else {
-    body = <Results impact={data.impact} isDemo={isDemo} />;
+    body = <Results impact={data.impact} isDemo={isDemo} t={t} number={number} />;
   }
 
   return (
     <Page
-      title="Order check"
-      subtitle="See which of your recent orders your saved block rules would stop, and why."
-      primaryAction={hasRules ? { content: data ? "Run again" : "Run check", onAction: run, loading: busy, disabled: busy } : undefined}
-      secondaryActions={hasRules ? [{ content: "Edit block rules", url: "/app/rules" }] : []}
+      title={t("orders.title")}
+      subtitle={t("orders.subtitle")}
+      primaryAction={hasRules ? { content: data ? t("orders.runAgain") : t("orders.run"), onAction: run, loading: busy, disabled: busy } : undefined}
+      secondaryActions={hasRules ? [{ content: t("orders.editRules"), url: "/app/rules" }] : []}
     >
       <Layout>
         {needsMigration && (
           <Layout.Section>
-            <Banner tone="warning" title="These rules aren't applied at checkout yet" action={{ content: "Review block rules", url: "/app/rules" }}>
-              <Text as="p">They were saved by an older version of CartGuard. Save them once on the Block rules page to apply them.</Text>
+            <Banner tone="warning" title={t("hero.migration.title")} action={{ content: t("hero.migration.action"), url: "/app/rules" }}>
+              <Text as="p">{t("hero.migration.body")}</Text>
             </Banner>
           </Layout.Section>
         )}
         <Layout.Section>{body}</Layout.Section>
         <Layout.Section>
           <Text as="p" variant="bodySm" tone="subdued">
-            {checkedAt ? `Checked ${checkedAt}. ` : ""}
-            Shopify doesn&apos;t tell apps when a checkout is blocked, so this page tests your saved rules on up to your last 100 real orders
-            (40 products each). Trusted customers are recognised by the order email.
+            {checkedAt ? t("orders.footnoteChecked", { date: checkedAt }) : ""}
+            {t("orders.footnote")}
           </Text>
         </Layout.Section>
       </Layout>
@@ -259,13 +268,12 @@ export default function OrderCheckPage() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
+  const { t } = useI18n();
   if (isRouteErrorResponse(error)) return boundary.error(error);
   return (
-    <Page title="Order check">
-      <Banner tone="critical" title="CartGuard couldn't load this page" action={{ content: "Try again", onAction: () => window.location.reload() }}>
-        <Text as="p">
-          Shopify didn&apos;t respond or returned an error. Your rules haven&apos;t changed and checkout keeps working. Try again in a moment.
-        </Text>
+    <Page title={t("orders.title")}>
+      <Banner tone="critical" title={t("errors.failedToLoadPage")} action={{ content: t("common.tryAgain"), onAction: () => window.location.reload() }}>
+        <Text as="p">{t("common.shopifyUnresponsive")}</Text>
       </Banner>
     </Page>
   );

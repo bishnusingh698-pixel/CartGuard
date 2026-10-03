@@ -57,10 +57,10 @@ export function pluralize(count: number, one: string, many = `${one}s`): string 
 }
 
 /** 3 of 8 -> "38%"; 1 of 300 -> "less than 1%". */
-export function formatShare(part: number, total: number): string {
+export function formatShare(part: number, total: number, lessThanOnePercent = "less than 1%"): string {
   if (total <= 0) return "0%";
   const share = (part / total) * 100;
-  if (part > 0 && share < 1) return "less than 1%";
+  if (part > 0 && share < 1) return lessThanOnePercent;
   return `${Math.round(share)}%`;
 }
 
