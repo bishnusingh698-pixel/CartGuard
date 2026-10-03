@@ -20,9 +20,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   try {
     switch (topic) {
       case "APP_UNINSTALLED": {
-        // Removes stored offline tokens. Idempotent, so retries are safe.
+        // Every row we hold for this shop, so nothing outlives the install.
+        // Idempotent, so retries are safe.
         await db.session.deleteMany({ where: { shop } });
-        console.log(`[webhooks] ${shop} uninstalled CartGuard; sessions deleted.`);
+        await db.shopPreference.deleteMany({ where: { shop } });
+        console.log(`[webhooks] ${shop} uninstalled CartGuard; sessions and preferences deleted.`);
         break;
       }
 
@@ -67,7 +69,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       case "SHOP_REDACT": {
         await db.session.deleteMany({ where: { shop } });
-        console.log(`[GDPR] shop/redact for ${shop}: all stored sessions deleted.`);
+        await db.shopPreference.deleteMany({ where: { shop } });
+        console.log(`[GDPR] shop/redact for ${shop}: all stored sessions and preferences deleted.`);
         break;
       }
 
