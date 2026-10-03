@@ -91,14 +91,14 @@ import {
 
 export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 
-/* ── Loader ─────────────────────────────────────────────────────────────────────── */
+/* Loader */
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, isDemo } = await getAdmin(request);
   return json<RulesState>(await loadRulesState(admin, isDemo));
 }
 
-/* ── Action ────────────────────────────────────────────────────────────────────── */
+/* Action */
 
 type Intent = "simulate" | "save";
 
@@ -164,7 +164,7 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-/* ── Presentational pieces ─────────────────────────────────────────────────────── */
+/* Presentational pieces */
 
 type RuleSectionCardProps = {
   section: RuleSection;
@@ -480,7 +480,7 @@ function jumpTo(section: RuleSection) {
   document.getElementById(SECTION_META[section].anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-/* ── Page ───────────────────────────────────────────────────────────────────────── */
+/* Page */
 
 export default function BlockRulesPage() {
   const { config, validation, needsMigration } = useLoaderData<typeof loader>() as unknown as RulesState;

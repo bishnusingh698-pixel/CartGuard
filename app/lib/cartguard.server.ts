@@ -106,7 +106,7 @@ export type ActionResponse = {
   message?: string;
 };
 
-/* ── Reading ─────────────────────────────────────────────────────────────────── */
+/* Reading */
 
 const SETTINGS_QUERY = `#graphql
   query CartGuardSettings {
@@ -152,7 +152,7 @@ export function effectiveRaw(stored: StoredConfiguration): RawConfig {
   return stored.current ?? stored.legacy ?? {};
 }
 
-/* ── Validation ──────────────────────────────────────────────────────────────── */
+/* Validation */
 
 const RELOAD_HINT = "Reload the page and try again.";
 
@@ -453,7 +453,7 @@ export function serializeConfig(config: RuleConfig): Record<ConfigKey, string> {
   };
 }
 
-/* ── Writing ────────────────────────────────────────────────────────────────── */
+/* Writing */
 
 export async function writeShopConfiguration(admin: AdminApi, shopId: string, config: RuleConfig): Promise<void> {
   const values = serializeConfig(config);
@@ -526,7 +526,7 @@ export async function saveConfiguration(admin: AdminApi, config: RuleConfig): Pr
   return { validationWarning };
 }
 
-/* ── Impact Checker ────────────────────────────────────────────────────────────── */
+/* Impact Checker */
 
 const IMPACT_PAGE_SIZE = 10;
 const IMPACT_MAX_ORDERS = 100;

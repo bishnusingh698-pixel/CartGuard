@@ -26,7 +26,7 @@ import { formatNumber } from "../lib/rule-summary";
 
 const CHIP_PREVIEW = 30;
 
-/* ── Chips ───────────────────────────────────────────────────────────────────── */
+/* Chips */
 
 type ChipListProps = {
   /** Plural name of the list, used in button labels ("blocked countries"). */
@@ -81,7 +81,7 @@ export function ChipList({ label, values, onChange, format, emptyText }: ChipLis
   );
 }
 
-/* ── Text list ──────────────────────────────────────────────────────────────── */
+/* Text list */
 
 function addEntries(values: string[], parts: string[], parse: (raw: string) => ParseResult) {
   const next = [...values];
@@ -192,7 +192,7 @@ export function ListField({
   );
 }
 
-/* ── Countries ───────────────────────────────────────────────────────────────── */
+/* Countries */
 
 type CountryPickerProps = {
   label: string;
@@ -259,7 +259,7 @@ export function CountryPicker({ label, helpText, values, onChange, error }: Coun
   );
 }
 
-/* ── States and provinces ───────────────────────────────────────────────────────── */
+/* States and provinces */
 
 const OTHER_COUNTRY = "other";
 

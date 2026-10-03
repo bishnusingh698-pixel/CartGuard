@@ -175,7 +175,7 @@ export const ADDRESS_PRESETS = {
 };
 export type AddressPreset = keyof typeof ADDRESS_PRESETS;
 
-/* ── Generic helpers ─────────────────────────────────────────────────────── */
+/* Generic helpers */
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -340,7 +340,7 @@ export function isRiskyPattern(pattern: string): boolean {
   return /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)(?:[+*]|\{\d+,\d*\})/.test(pattern);
 }
 
-/* ── Config parsing (tolerant) ───────────────────────────────────────────── */
+/* Config parsing (tolerant) */
 
 export function parseSettings(raw: unknown): CartGuardSettings {
   const parsed = parseJson(raw);
@@ -461,7 +461,7 @@ export function parseConfig(raw: RawConfig): RuleConfig {
   };
 }
 
-/* ── Quantity limit keys ─────────────────────────────────────────────────── */
+/* Quantity limit keys */
 
 function isGlobalKey(key: string): boolean {
   return key === "*" || key.toLowerCase() === "all";
@@ -499,7 +499,7 @@ function describeLimitKey(key: string): string {
   return `tag "${key}"`;
 }
 
-/* ── Rules ───────────────────────────────────────────────────────────────── */
+/* Rules */
 
 function addressTarget(groupIndex: number, field: string): string {
   return `$.cart.deliveryGroups[${groupIndex}].deliveryAddress.${field}`;

@@ -112,7 +112,7 @@ export function literalText(pattern: string): string | null {
   return escapeRegex(text) === pattern ? text : null;
 }
 
-/* ── Stored config -> form ───────────────────────────────────────────────── */
+/* Stored config -> form */
 
 function ruleToRow(rule: RegexRule): AddressRuleRow {
   const street = rule.preset === "street" && rule.street && escapeRegex(rule.street) === rule.pattern ? rule.street : null;
@@ -187,7 +187,7 @@ export function editorFromConfig(config: RuleConfig): EditorState {
   };
 }
 
-/* ── Form -> stored config ───────────────────────────────────────────────── */
+/* Form -> stored config */
 
 function rowToRule(row: AddressRuleRow): RegexRule | null {
   const text = row.text.trim();
@@ -291,7 +291,7 @@ function readAmount(raw: string): number | undefined | null {
   return Math.round(parsed * 100) / 100;
 }
 
-/* ── Field parsers ───────────────────────────────────────────────────────── */
+/* Field parsers */
 
 export type ParseResult = { value: string } | { error: string };
 
@@ -374,7 +374,7 @@ export function patternProblem(pattern: string): string | null {
   return null;
 }
 
-/* ── Validation ──────────────────────────────────────────────────────────── */
+/* Validation */
 
 export const LIST_FIELD_IDS = {
   countries: "geo.countries",

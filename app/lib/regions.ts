@@ -87,7 +87,7 @@ export function findCountry(value: string): string | null {
   return alias && COUNTRY_SET.has(alias) ? alias : null;
 }
 
-/* ── States and provinces ────────────────────────────────────────────────── */
+/* States and provinces */
 
 const REGION_DATA: Record<string, string> = {
   US:
