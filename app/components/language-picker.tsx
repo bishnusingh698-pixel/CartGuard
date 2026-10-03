@@ -44,10 +44,10 @@ export function LanguageSetting({ value, chosen, detected }: Props) {
     fetcher.submit({ language: next }, { method: "post", action: "/language" });
   };
 
-  // `pending` is cleared once the request settles, so a save that failed must
-  // not leave the control showing a value that was never stored. Clearing is
-  // derived from the fetcher rather than stored separately, which avoids a
-  // double-render and keeps the two states from drifting apart.
+  // `pending` is not cleared when the request settles; `failed` is what decides
+  // whether the shown value is the one being saved or the one already stored.
+  // Clearing `pending` directly would need an effect and an extra render, and
+  // a failed save would briefly flash the rejected value before snapping back.
   const failed = fetcher.state === "idle" && fetcher.data !== undefined && !fetcher.data.ok;
 
   return (

@@ -9,10 +9,10 @@
 
 | | Count |
 |---|---|
-| Bugs found | 3 |
-| Fixed | 3 |
+| Bugs found | 5 |
+| Fixed | 5 |
 | Flagged for human review | 3 |
-| False leads investigated and dismissed | 4 |
+| False leads investigated and dismissed | 6 |
 
 ---
 
@@ -23,6 +23,8 @@
 | 1 | `extensions/cartguard-validator/src/rules.ts` | 665 (`amountBounds`) | Order-amount bounds from **any** configured limit were applied to **every** cart, because `amountBounds` never consulted the limit's key. A rule scoped to a product tag became a store-wide blocker, and the tightest bound won regardless of relevance. | **High** | Fixed (`12e050e`) |
 | 2 | `app/lib/cartguard.server.ts` | 666 (`simulateImpact`) | Pagination loop was bounded by `orders.length`, but a page returning zero orders never incremented it. A repeated cursor caused unbounded re-querying (40 requests in the reproduction) until the Admin API throttled. | **Medium** | Fixed (`dc8272d`) |
 | 3 | `app/entry.server.tsx` | 28 (`sendResponse`) | The stream abort timer was only cleared in `onAllReady`, which runs for bots. On the streaming path it fired up to 6s later and aborted a render that had already been sent. | **Medium** | Fixed (`ad2989f`) |
+| 4 | `extensions/cartguard-validator/src/rules.ts` | 286 (`resolveCountryCode`) | `COUNTRY_NAMES` was indexed directly, so a country value of `constructor` returned the **`Object` constructor function** and `__proto__` returned `Object.prototype` — both violating the declared `string \| null` return type. | **Low** | Fixed (`fe2b11a`) |
+| 5 | `app/lib/cartguard.server.ts` | 587 (`orderToCart`) | `(item?.product?.tags ?? [])` guards `null`/`undefined` but not a non-array. Any other shape threw on `.filter`, failing the whole Order check page. | **Medium** | Fixed (`fe2b11a`) |
 
 ### 1. Order-amount bounds ignored limit scoping — **High**
 
@@ -72,6 +74,36 @@ If `hasNextPage` was true but the page contained no `nodes`, the loop counter ne
 
 **Fix:** clear the timer in `sendResponse`, which both paths go through.
 
+### 4. `resolveCountryCode` returned inherited `Object` members — **Low**
+
+`COUNTRY_NAMES` was a plain object literal, indexed without an own-property check:
+
+```ts
+const named = COUNTRY_NAMES[lowered] ?? COUNTRY_NAMES[stripDiacritics(lowered)];
+```
+
+A country value of `constructor` returned the **`Object` constructor function**; `__proto__` returned `Object.prototype`; `toString` and `valueOf` returned their functions. Every one of these violates the function's declared `string | null` return type.
+
+The value reaches this function from merchant-editable metafields (`geo.countries`, a regex rule's `country` scope) and from the Admin API, so it is not restricted to known-good codes.
+
+**Impact assessed as fail-closed, not exploitable.** Every call site compares the result against a string — `regions.ts` guards with `COUNTRY_SET.has`, and `compileAddressRules` compares `rule.country !== country`. A function value is never `===` a real country code, so a rule scoped to `"constructor"` simply never matches. I found no path that stringifies or renders the raw return value.
+
+The defect is therefore the **broken type contract** rather than a live vulnerability: the next caller to use the result as a string inherits it silently, because TypeScript believed the type was sound.
+
+**Fix:** `Object.hasOwn` before both lookups. All hostile keys now return `null`; real codes, name aliases and diacritic-stripped aliases are unchanged (pinned by `tests/lookup-hardening.test.ts`).
+
+### 5. `orderToCart` threw on a non-array `tags` — **Medium**
+
+```ts
+const tags = (item?.product?.tags ?? []).filter(...)
+```
+
+`?? []` guards `null` and `undefined` only. Any other shape — a string, a number, an object — reaches `.filter` and throws `is not a function`. The throw escaped `orderToCart` into the Order check action, so a merchant saw *"The order check didn't finish"* instead of results.
+
+This is reachable with real Shopify data: tags are typed `[String!]` but the Admin API is not a trustworthy boundary for anything a merchant, app, or partial/edge response can influence.
+
+**Fix:** `Array.isArray(rawTags) ? rawTags : []`, matching the `Array.isArray` guard already used for `lineItems.nodes` on the adjacent line. The sibling null cases (`lineItems: null`, `nodes: null`, `[null]` entries, `product: null`, negative/non-numeric amounts and quantities) were tested and already degrade safely.
+
 ---
 
 ## Needs human review
@@ -107,7 +139,7 @@ Baseline was taken on `feat/i18n-and-ui-polish` before any changes.
 |---|---|---|
 | `npx tsc` | pass | pass |
 | `npm run lint` | 0 errors (5 Remix future-flag warnings) | 0 errors (same warnings) |
-| `npm test` (`check-locales` + vitest) | 9 files, 137 tests pass | **10 files, 144 tests pass** |
+| `npm test` (`check-locales` + vitest) | 9 files, 137 tests pass | **11 files, 152 tests pass** |
 | `npm run build` | pass | pass |
 | `npx tsc --noEmit` (function ext.) | pass | pass |
 | `npm audit` | 21 vulns (2 critical, 12 high) | unchanged — see below |
@@ -135,6 +167,9 @@ Recording these so the next pass doesn't re-audit them:
 - **Rule engine vs. hostile input** — probed with 18 malformed configs (prototype-key presets, unbalanced regex, `(a+)+` ReDoS, 500KB patterns, non-string blocklists, `NaN`/negative/zero limits, `null` product IDs, huge `min`). All rejected without throwing; `evaluateCart` additionally wraps each rule in a fail-open `try/catch`. No changes needed.
 - **VIP guest spoofing** — `isVipCustomer` only reads `customerEmail` (the account email from `buyerIdentity.customer.email`), never the freely-typed `buyerIdentity.email`. Verified a guest typing a VIP address is still blocked.
 - **Country embargo vs. VIP** — `evaluateCart` runs the embargo *before* the VIP short-circuit, so a VIP in a blocked country is still stopped. This is the behaviour the Settings copy promises.
+- **Money formatting** — `formatMoney` delegates to `Intl.NumberFormat`, so zero-decimal currencies (JPY) drop the fraction, three-decimal currencies (BHD) add it, and an unknown or null `currencyCode` falls back to `CODE 100.00` / `$100.00` instead of throwing the `RangeError` an unvalidated currency would cause.
+- **Editor round-trip** — a saved config survives `editorFromConfig` → `configFromEditor`. Checked VIP entries, duplicate and `"*"` vs `"all"` limit keys, amount bounds on a scoped limit, built-in presets with custom messages, unknown presets, and duplicate address rules. Two apparent failures were **my test expectations being wrong**, not the code: `literalText()` correctly refuses to treat a real regex as literal text, and `validateEditor` already rejects duplicate limit keys (including `"*"` vs `"all"`, which both map to the key `"all"`).
+- **`rule-editor.ts` preset indexing** — `ADDRESS_PRESETS[check]` and `ADDRESS_PRESETS[rule.preset]` looked unguarded. Both are safe: `check` iterates the fixed `BUILT_IN_CHECKS` list, and `rule.preset` is narrowed by `isBuiltInCheck` before the index.
 
 ---
 
