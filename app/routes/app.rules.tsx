@@ -48,7 +48,7 @@ import {
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { type ValidationStatus } from "../lib/validation.server";
 import { CountryPicker, ListField, RegionPicker } from "../components/rule-fields";
-import { SectionBadge, sectionStatusText } from "../components/section-status";
+import { SectionBadge, useSectionStatusText } from "../components/section-status";
 import { describeScopedEntry, getCountryOptions, type Option } from "../lib/regions";
 import {
   LIST_FIELD_IDS,
@@ -191,7 +191,7 @@ function RuleSectionCard({ section, summary, errorCount, serverError, onToggle, 
                 <SectionBadge summary={summary} />
               </InlineStack>
               <Text as="p" variant="bodySm" tone="subdued">
-                {sectionStatusText(summary)}
+                {useSectionStatusText(summary)}
               </Text>
             </BlockStack>
             <Button onClick={() => onToggle(!summary.enabled)} accessibilityLabel={`${toggleLabel} ${meta.title.toLowerCase()}`}>

@@ -31,7 +31,7 @@ import type { MessageKey } from "../i18n/catalog";
 import { friendlyErrorMessage } from "../lib/admin-api.server";
 import { type ImpactMatch, type ImpactResult, effectiveRaw, parseConfig, readConfiguration, simulateImpact } from "../lib/cartguard.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
-import { SECTION_META, type RuleSection, formatNumber, formatShare, summarizeSections } from "../lib/rule-summary";
+import { type RuleSection, formatShare, summarizeSections } from "../lib/rule-summary";
 
 export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 

@@ -7,10 +7,12 @@ import type { HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { isRouteErrorResponse, useLoaderData, useRouteError } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
-import { Fragment, useMemo } from "react";
+import { Fragment, type ReactNode, useMemo } from "react";
 import { Badge, Banner, BlockStack, Button, Card, Divider, InlineGrid, InlineStack, Layout, Link, Page, Text } from "@shopify/polaris";
 
-import { SectionBadge, sectionStatusText } from "../components/section-status";
+import { useI18n } from "../i18n/context";
+import type { MessageKey } from "../i18n/catalog";
+import { SectionBadge, useSectionStatusText } from "../components/section-status";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { RULE_SECTIONS, SECTION_META, type RuleSection, type SectionSummary, summarizeSections } from "../lib/rule-summary";
 
@@ -24,12 +26,24 @@ export async function loader({ request }: LoaderFunctionArgs) {
 /** Sections that stop orders. Trusted customers only make exceptions. */
 const BLOCKING_SECTIONS: RuleSection[] = ["geo", "address", "quantity"];
 
-const SECTION_PHRASES: Record<RuleSection, string> = {
-  geo: "country and region rules",
-  address: "address rules",
-  quantity: "quantity limits",
-  vip: "trusted customers",
+const SUPPORT_EMAIL = "support@cartguard.io";
+
+const SECTION_PHRASE_KEY: Record<RuleSection, MessageKey> = {
+  geo: "overview.phrase.geo",
+  address: "overview.phrase.address",
+  quantity: "overview.phrase.quantity",
+  vip: "overview.phrase.vip",
 };
+
+const SECTION_TITLE_KEY: Record<RuleSection, MessageKey> = {
+  geo: "section.geo.title",
+  address: "section.address.title",
+  quantity: "section.quantity.title",
+  vip: "section.vip.title",
+};
+
+type TFn = ReturnType<typeof useI18n>["t"];
+type ListFn = ReturnType<typeof useI18n>["list"];
 
 type Hero = {
   tone: "success" | "warning" | "critical" | "attention";
@@ -40,48 +54,46 @@ type Hero = {
   action?: { content: string; url: string };
 };
 
-const listFormat = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
-
-function heroFor(state: RulesState, summaries: Record<RuleSection, SectionSummary>): Hero {
+function heroFor(state: RulesState, summaries: Record<RuleSection, SectionSummary>, t: TFn, list: ListFn): Hero {
   const { validation, needsMigration } = state;
   if (validation.state === "function_not_deployed") {
     return {
       tone: "critical",
       background: "bg-surface-critical",
-      badge: "Not installed",
-      title: "Checkout protection isn't installed yet",
-      body: "This usually fixes itself within a few minutes of installing CartGuard. If it doesn't, reinstall the app or email support@cartguard.io. Until then, no order is blocked.",
-      action: { content: "Open settings", url: "/app/settings" },
+      badge: t("common.notInstalled"),
+      title: t("hero.notInstalled.title"),
+      body: t("hero.notInstalled.body"),
+      action: { content: t("hero.notInstalled.action"), url: "/app/settings" },
     };
   }
   if (validation.state === "unknown") {
     return {
       tone: "warning",
       background: "bg-surface-warning",
-      badge: "Status unknown",
-      title: "We couldn't check your checkout protection",
-      body: validation.message ?? "Shopify didn't respond. Reload the page in a moment.",
-      action: { content: "Open settings", url: "/app/settings" },
+      badge: t("hero.unknown.badge"),
+      title: t("hero.unknown.title"),
+      body: validation.message ?? t("hero.unknown.body"),
+      action: { content: t("common.manage"), url: "/app/settings" },
     };
   }
   if (needsMigration) {
     return {
       tone: "warning",
       background: "bg-surface-warning",
-      badge: "Not active",
-      title: "Save your rules once to turn protection on",
-      body: "Your rules were saved by an older version of CartGuard and aren't applied at checkout yet.",
-      action: { content: "Review block rules", url: "/app/rules" },
+      badge: t("hero.migration.badge"),
+      title: t("hero.migration.title"),
+      body: t("hero.migration.body"),
+      action: { content: t("hero.migration.action"), url: "/app/rules" },
     };
   }
   if (validation.state !== "active") {
     return {
       tone: "warning",
       background: "bg-surface-warning",
-      badge: "Off",
-      title: "CartGuard isn't protecting checkout yet",
-      body: "Save your block rules to switch protection on. Until then, no order is blocked.",
-      action: { content: "Review block rules", url: "/app/rules" },
+      badge: t("hero.off.badge"),
+      title: t("hero.off.title"),
+      body: t("hero.off.body"),
+      action: { content: t("hero.migration.action"), url: "/app/rules" },
     };
   }
   const active = BLOCKING_SECTIONS.filter((section) => summaries[section].enabled && !summaries[section].empty);
@@ -89,56 +101,73 @@ function heroFor(state: RulesState, summaries: Record<RuleSection, SectionSummar
     return {
       tone: "attention",
       background: "bg-surface-caution",
-      badge: "No rules yet",
-      title: "Protection is on, but no block rules are set up",
-      body: "Add a country, address or quantity rule to start stopping risky orders.",
-      action: { content: "Add a block rule", url: "/app/rules" },
+      badge: t("hero.noRules.badge"),
+      title: t("hero.noRules.title"),
+      body: t("hero.noRules.body"),
+      action: { content: t("hero.noRules.action"), url: "/app/rules" },
     };
   }
-  const phrase = listFormat.format(active.map((section) => SECTION_PHRASES[section]));
   return {
     tone: "success",
     background: "bg-surface-success",
-    badge: "Protected",
-    title: "CartGuard is protecting checkout",
-    body: `Your ${phrase} are checked on every checkout.`,
+    badge: t("hero.protected.badge"),
+    title: t("hero.protected.title"),
+    body: t("hero.protected.body", { rules: list(active.map((section) => t(SECTION_PHRASE_KEY[section]))) }),
   };
 }
 
 function RuleRow({ section, summary }: { section: RuleSection; summary: SectionSummary }) {
-  const meta = SECTION_META[section];
+  const { t } = useI18n();
+  const statusText = useSectionStatusText(summary);
+  const action = summary.enabled ? t("common.manage") : t("common.setUp");
   return (
     <InlineGrid columns={{ xs: 1, sm: "1fr auto" }} gap="300" alignItems="center">
       <BlockStack gap="100">
         <InlineStack gap="200" blockAlign="center">
           <Text as="h3" variant="headingSm">
-            {meta.title}
+            {t(SECTION_TITLE_KEY[section])}
           </Text>
           <SectionBadge summary={summary} />
         </InlineStack>
         <Text as="p" variant="bodySm" tone="subdued">
-          {sectionStatusText(summary)}
+          {statusText}
         </Text>
       </BlockStack>
       <InlineStack>
-        <Button url={`/app/rules#${meta.anchor}`} accessibilityLabel={`${summary.enabled ? "Manage" : "Set up"} ${meta.title.toLowerCase()}`}>
-          {summary.enabled ? "Manage" : "Set up"}
+        <Button url={`/app/rules#${SECTION_META[section].anchor}`} accessibilityLabel={`${action}: ${t(SECTION_TITLE_KEY[section])}`}>
+          {action}
         </Button>
       </InlineStack>
     </InlineGrid>
   );
 }
 
+/**
+ * `overview.help.body` carries `{link}` and `{email}` placeholders, and each
+ * language orders them differently. Splitting on the placeholders keeps the
+ * translator in charge of word order while still yielding real anchors, which a
+ * plain string interpolation could not do.
+ */
+function renderLinkedHelp(body: string, t: TFn): ReactNode[] {
+  const parts = body.split(/(\{link\}|\{email\})/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part === "{link}") return <Link key={index} url="/app/settings#how-it-works">{t("overview.help.link")}</Link>;
+    if (part === "{email}") return <Link key={index} url="mailto:support@cartguard.io">{SUPPORT_EMAIL}</Link>;
+    return <Fragment key={index}>{part}</Fragment>;
+  });
+}
+
 export default function OverviewPage() {
+  const { t, list } = useI18n();
   const state = useLoaderData<typeof loader>() as unknown as RulesState;
   const summaries = useMemo(() => summarizeSections(state.config), [state.config]);
-  const hero = heroFor(state, summaries);
+  const hero = heroFor(state, summaries, t, list);
 
   return (
     <Page
-      title="Overview"
-      subtitle="CartGuard stops risky and undeliverable orders before checkout completes."
-      primaryAction={hero.action ? undefined : { content: "Edit block rules", url: "/app/rules" }}
+      title={t("overview.title")}
+      subtitle={t("overview.subtitle")}
+      primaryAction={hero.action ? undefined : { content: t("overview.editRules"), url: "/app/rules" }}
     >
       <Layout>
         <Layout.Section variant="fullWidth">
@@ -169,10 +198,10 @@ export default function OverviewPage() {
             <BlockStack gap="400">
               <InlineStack align="space-between" blockAlign="center">
                 <Text as="h2" variant="headingMd">
-                  Your block rules
+                  {t("overview.yourRules")}
                 </Text>
                 <Button variant="plain" url="/app/rules">
-                  Edit all rules
+                  {t("overview.editAllRules")}
                 </Button>
               </InlineStack>
               {RULE_SECTIONS.map((section, index) => (
@@ -190,24 +219,23 @@ export default function OverviewPage() {
             <Card>
               <BlockStack gap="300">
                 <Text as="h2" variant="headingMd">
-                  Order check
+                  {t("overview.orderCheck.title")}
                 </Text>
                 <Text as="p" tone="subdued">
-                  See which of your recent orders your rules would stop, and why, before a real customer is affected.
+                  {t("overview.orderCheck.body")}
                 </Text>
                 <InlineStack>
-                  <Button url="/app/orders">Check recent orders</Button>
+                  <Button url="/app/orders">{t("overview.orderCheck.action")}</Button>
                 </InlineStack>
               </BlockStack>
             </Card>
             <Card>
               <BlockStack gap="200">
                 <Text as="h2" variant="headingMd">
-                  Need help?
+                  {t("overview.help.title")}
                 </Text>
                 <Text as="p" tone="subdued">
-                  Learn <Link url="/app/settings#how-it-works">how CartGuard decides</Link> which orders to stop, or email{" "}
-                  <Link url="mailto:support@cartguard.io">support@cartguard.io</Link>.
+                  {renderLinkedHelp(t("overview.help.body"), t)}
                 </Text>
               </BlockStack>
             </Card>
@@ -220,12 +248,13 @@ export default function OverviewPage() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
+  const { t } = useI18n();
   if (isRouteErrorResponse(error)) return boundary.error(error);
   return (
-    <Page title="Overview">
-      <Banner tone="critical" title="CartGuard couldn't load your overview" action={{ content: "Try again", onAction: () => window.location.reload() }}>
+    <Page title={t("overview.title")}>
+      <Banner tone="critical" title={t("errors.failedToLoadOverview")} action={{ content: t("common.tryAgain"), onAction: () => window.location.reload() }}>
         <Text as="p">
-          Shopify didn&apos;t respond or returned an error. Your rules haven&apos;t changed and checkout keeps working. Try again in a moment. If this keeps happening, email support@cartguard.io.
+          {t("common.shopifyUnresponsive")} {t("errors.withSupport")}
         </Text>
       </Banner>
     </Page>
