@@ -120,6 +120,3 @@ export function formatList(language: Language, items: readonly string[]): string
 export function catalogFor(language: Language): Messages {
   return CATALOGS[language];
 }
-
-/** Every language the app ships, used by the locale completeness test. */
-export const LANGUAGES_WITH_CATALOGS: Language[] = Object.keys(CATALOGS) as Language[];

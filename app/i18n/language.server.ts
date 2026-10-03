@@ -54,11 +54,6 @@ export async function readSavedLanguage(shop: string | undefined): Promise<Saved
   }
 }
 
-/** Reads just the saved choice, for callers that only need the language. */
-export async function readChosenLanguage(shop: string | undefined): Promise<Language | null> {
-  return (await readSavedLanguage(shop)).language;
-}
-
 /**
  * Records the merchant's answer to the language picker. Pass `null` to follow
  * the admin locale again, which is also what skipping does. Either way
