@@ -20,9 +20,9 @@ import {
   TextField,
 } from "@shopify/polaris";
 
+import { useI18n } from "../i18n/context";
 import { REGION_COUNTRIES, countryName, describeStateEntry, getCountryOptions, regionOptions, searchKey } from "../lib/regions";
 import { type ParseResult, parseCountryEntry, parseRegionCode } from "../lib/rule-editor";
-import { formatNumber } from "../lib/rule-summary";
 
 const CHIP_PREVIEW = 30;
 
@@ -38,6 +38,7 @@ type ChipListProps = {
 };
 
 export function ChipList({ label, values, onChange, format, emptyText }: ChipListProps) {
+  const { t, number } = useI18n();
   const [expanded, setExpanded] = useState(false);
   if (values.length === 0) {
     return (
@@ -56,7 +57,7 @@ export function ChipList({ label, values, onChange, format, emptyText }: ChipLis
             <Tag
               key={`${index}-${value}`}
               onRemove={() => onChange(values.filter((_, position) => position !== index))}
-              accessibilityLabel={`Remove ${text}`}
+              accessibilityLabel={t("list.chip.remove", { value: text })}
             >
               {text}
             </Tag>
@@ -67,12 +68,12 @@ export function ChipList({ label, values, onChange, format, emptyText }: ChipLis
         <InlineStack gap="400">
           {values.length > CHIP_PREVIEW && (
             <Button variant="plain" onClick={() => setExpanded((current) => !current)}>
-              {expanded ? "Show fewer" : `Show all ${formatNumber(values.length)}`}
+              {expanded ? t("list.showFewer") : t("list.showAll", { count: number(values.length) })}
             </Button>
           )}
           {values.length >= 5 && (
-            <Button variant="plain" tone="critical" onClick={() => onChange([])} accessibilityLabel={`Remove all ${label}`}>
-              Remove all
+            <Button variant="plain" tone="critical" onClick={() => onChange([])} accessibilityLabel={t("list.removeAll", { label })}>
+              {t("common.removeAll")}
             </Button>
           )}
         </InlineStack>
@@ -136,12 +137,14 @@ export function ListField({
   onChange,
   parse,
   format,
-  emptyText = "Nothing added yet.",
+  emptyText,
   allowMany = true,
   error,
   scope,
   showChips = true,
 }: ListFieldProps) {
+  const { t, number } = useI18n();
+  const emptyLabel = emptyText ?? t("list.nothingAdded");
   const [input, setInput] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -152,12 +155,14 @@ export function ListField({
     const { next, rejected, error: firstError, duplicates } = addEntries(values, parts, parse);
     if (next.length !== values.length) onChange(next);
     setInput(rejected.join(", "));
-    setInputError(firstError && rejected.length > 1 ? `${rejected.length} entries weren't added. ${firstError}` : firstError);
+    setInputError(
+      firstError && rejected.length > 1 ? t("list.rejected", { count: number(rejected.length), reason: firstError }) : firstError,
+    );
     setNotice(
       !firstError && duplicates > 0
         ? parts.length === 1
-          ? "That's already on the list."
-          : `Skipped ${formatNumber(duplicates)} already on the list.`
+          ? t("list.duplicateOne")
+          : t("list.duplicateMany", { count: number(duplicates) })
         : null,
     );
   };
@@ -186,7 +191,7 @@ export function ListField({
         />
       </Form>
       {showChips && (
-        <ChipList label={listName ?? label} values={values} onChange={onChange} format={format} emptyText={emptyText} />
+        <ChipList label={listName ?? label} values={values} onChange={onChange} format={format} emptyText={emptyLabel} />
       )}
     </BlockStack>
   );
@@ -203,6 +208,7 @@ type CountryPickerProps = {
 };
 
 export function CountryPicker({ label, helpText, values, onChange, error }: CountryPickerProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
   const allOptions = useMemo(() => getCountryOptions(), []);
@@ -219,11 +225,11 @@ export function CountryPicker({ label, helpText, values, onChange, error }: Coun
         options={options}
         selected={values}
         onSelect={(selected) => onChange(selected)}
-        listTitle="Countries"
+        listTitle={t("fields.countries.listTitle")}
         emptyState={
           <Box padding="300">
             <Text as="p" tone="subdued">
-              No countries match &quot;{query}&quot;.
+              {t("fields.countries.noMatch", { query })}
             </Text>
           </Box>
         }
@@ -233,22 +239,28 @@ export function CountryPicker({ label, helpText, values, onChange, error }: Coun
             helpText={helpText}
             value={query}
             onChange={setQuery}
-            placeholder="Search for a country"
+            placeholder={t("fields.countries.searchPlaceholder")}
             autoComplete="off"
             error={error}
           />
         }
       />
-      <ChipList label="blocked countries" values={values} onChange={onChange} format={countryName} emptyText="No countries blocked." />
+      <ChipList
+        label={t("fields.countries.listName")}
+        values={values}
+        onChange={onChange}
+        format={countryName}
+        emptyText={t("fields.countries.empty")}
+      />
       <InlineStack>
         <Button variant="plain" onClick={() => setPasteOpen((open) => !open)} ariaExpanded={pasteOpen}>
-          {pasteOpen ? "Hide list entry" : "Add several countries at once"}
+          {pasteOpen ? t("fields.countries.pasteToggleHide") : t("fields.countries.pasteToggle")}
         </Button>
       </InlineStack>
       {pasteOpen && (
         <ListField
-          label="Paste a list of countries"
-          helpText="Separate names or 2-letter codes with commas, for example: Kazakhstan, CR, Russia."
+          label={t("fields.countries.pasteLabel")}
+          helpText={t("fields.countries.pasteHelp")}
           values={values}
           onChange={onChange}
           parse={parseCountryEntry}
@@ -271,6 +283,7 @@ type RegionPickerProps = {
 };
 
 export function RegionPicker({ label, values, onChange, error }: RegionPickerProps) {
+  const { t } = useI18n();
   const [country, setCountry] = useState<string>(REGION_COUNTRIES[0]);
   const [region, setRegion] = useState("");
   const [otherCountry, setOtherCountry] = useState("");
@@ -280,9 +293,9 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
   const countryChoices = useMemo(
     () => [
       ...REGION_COUNTRIES.map((value) => ({ label: countryName(value), value })),
-      { label: "Another country (enter a code)", value: OTHER_COUNTRY },
+      { label: t("fields.states.otherCountry"), value: OTHER_COUNTRY },
     ],
-    [],
+    [t],
   );
   const otherCountries = useMemo(
     () => getCountryOptions().filter((option) => !(REGION_COUNTRIES as readonly string[]).includes(option.value)),
@@ -294,13 +307,13 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
     let entry: string;
     if (!isOther) {
       if (!region) {
-        setInputError("Choose a state or province first.");
+        setInputError(t("fields.states.needState"));
         return;
       }
       entry = `${country}-${region}`;
     } else {
       if (!otherCountry) {
-        setInputError("Choose a country first.");
+        setInputError(t("fields.states.needCountry"));
         return;
       }
       const parsed = parseRegionCode(code);
@@ -311,7 +324,7 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
       entry = `${otherCountry}-${parsed.value}`;
     }
     if (values.some((value) => value.toUpperCase() === entry.toUpperCase())) {
-      setInputError("That's already on the list.");
+      setInputError(t("fields.states.duplicate"));
       return;
     }
     onChange([...values, entry]);
@@ -327,14 +340,13 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
       <BlockStack gap="100">
         <Text as="p">{label}</Text>
         <Text as="p" variant="bodySm" tone="subdued">
-          Choose from the list for the United States, Canada and Australia. For any other country, choose Another country and enter
-          the region code Shopify shows on its orders.
+          {t("fields.states.help")}
         </Text>
       </BlockStack>
       <Form onSubmit={add}>
         <InlineGrid columns={{ xs: 1, sm: "1fr 1fr auto" }} gap="200" alignItems="end">
           <Select
-            label="Country"
+            label={t("fields.states.country")}
             options={countryChoices}
             value={country}
             onChange={(value) => {
@@ -346,8 +358,8 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
           {isOther ? (
             <InlineGrid columns={2} gap="200">
               <Select
-                label="Which country"
-                placeholder="Choose"
+                label={t("fields.states.whichCountry")}
+                placeholder={t("fields.states.choose")}
                 options={otherCountries}
                 value={otherCountry}
                 onChange={(value) => {
@@ -356,7 +368,7 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
                 }}
               />
               <TextField
-                label="Region code"
+                label={t("fields.states.regionCode")}
                 placeholder="13"
                 value={code}
                 onChange={(value) => {
@@ -369,8 +381,8 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
           ) : (
             <Select
               id="cartguard-region"
-              label="State or province"
-              placeholder="Choose one"
+              label={t("fields.states.stateOrProvince")}
+              placeholder={t("fields.states.chooseOne")}
               options={regionOptions(country)}
               value={region}
               onChange={(value) => {
@@ -379,22 +391,21 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
               }}
             />
           )}
-          <Button submit>Add</Button>
+          <Button submit>{t("common.add")}</Button>
         </InlineGrid>
       </Form>
       {isOther && (
         <Text as="p" variant="bodySm" tone="subdued">
-          Use the region code Shopify shows on the order&apos;s shipping address, such as 13 for Tokyo in Japan. Some countries, like the
-          United Kingdom, have no region on Shopify addresses. For those, block a city or postal code below instead.
+          {t("fields.states.otherHelp")}
         </Text>
       )}
       {shownError && <InlineError message={shownError} fieldID="cartguard-region" />}
       <ChipList
-        label="blocked states and provinces"
+        label={t("fields.states.listName")}
         values={values}
         onChange={onChange}
         format={describeStateEntry}
-        emptyText="No states or provinces blocked."
+        emptyText={t("fields.states.empty")}
       />
     </BlockStack>
   );
