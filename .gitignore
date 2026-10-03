@@ -17,3 +17,4 @@ Thumbs.db
 .idea
 .vscode
 extensions/cartguard-validator/dist
+extensions/cartguard-validator/node_modules
