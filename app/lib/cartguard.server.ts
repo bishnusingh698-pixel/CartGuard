@@ -584,14 +584,15 @@ function toAmount(money: Money | undefined): number | null {
 
 function orderToCart(order: OrderNode, limitTags: Set<string>): CartInput {
   const lines: CartLineInput[] = [];
-  (order.lineItems?.nodes ?? []).forEach((item, index) => {
+  const items = Array.isArray(order.lineItems?.nodes) ? order.lineItems.nodes : [];
+  items.forEach((item, index) => {
     const productId = item?.product?.id;
     if (!productId) return;
     // Checkout only learns about the tags in collectLimitTags (product.hasTags),
     // so the simulation must see exactly the same subset.
-    const tags = (item?.product?.tags ?? []).filter(
-      (tag): tag is string => typeof tag === "string" && limitTags.has(tag.trim().toLowerCase()),
-    );
+    const rawTags = item?.product?.tags;
+    const tags = (Array.isArray(rawTags) ? rawTags : [])
+      .filter((tag): tag is string => typeof tag === "string" && limitTags.has(tag.trim().toLowerCase()));
     const quantity = Number(item?.quantity ?? 0);
     const lineTotal = toAmount(item?.originalTotalSet?.shopMoney);
     lines.push({

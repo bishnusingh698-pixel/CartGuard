@@ -287,8 +287,12 @@ export function resolveCountryCode(value: unknown): string | null {
   const raw = clean(value);
   if (!raw) return null;
   const lowered = raw.toLowerCase();
-  const named = COUNTRY_NAMES[lowered] ?? COUNTRY_NAMES[stripDiacritics(lowered)];
-  if (named) return named;
+  // Own-property lookups only: a bare index would hand back an
+  // Object.prototype member, so "constructor" resolved to the Object function
+  // instead of null and broke the declared string | null return type.
+  if (Object.hasOwn(COUNTRY_NAMES, lowered)) return COUNTRY_NAMES[lowered];
+  const folded = stripDiacritics(lowered);
+  if (Object.hasOwn(COUNTRY_NAMES, folded)) return COUNTRY_NAMES[folded];
   if (/^[a-z]{2}$/i.test(raw)) return raw.toUpperCase();
   return null;
 }
