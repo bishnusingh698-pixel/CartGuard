@@ -31,26 +31,6 @@ export const LANGUAGE_NAMES: Record<Language, string> = {
   sv: "Svenska",
 };
 
-/**
- * A flag is decoration next to a language name, never the label itself: a
- * language is not a country (English is not only the US, Spanish is not only
- * Spain). The flag is only a quick scanning aid, and it is `aria-hidden` in the
- * UI. SVG rather than emoji because emoji flags render as plain letters on
- * Windows.
- */
-export const LANGUAGE_FLAGS: Record<Language, string> = {
-  en: "us",
-  de: "de",
-  fr: "fr",
-  es: "es",
-  "pt-BR": "br",
-  "zh-CN": "cn",
-  ja: "jp",
-  it: "it",
-  nl: "nl",
-  sv: "se",
-};
-
 const isSupported = (value: string): value is Language => (SUPPORTED_LANGUAGES as readonly string[]).includes(value);
 
 /**
@@ -134,8 +114,6 @@ export type LanguageOption = {
   value: Language;
   /** Native language name, e.g. "Deutsch". */
   label: string;
-  /** SVG flag code from `flag-icons`, e.g. "de". Decorative only. */
-  flag: string;
 };
 
 /** Languages in their own script first, English last as the safe default. */
@@ -143,7 +121,6 @@ export const LANGUAGE_OPTIONS: LanguageOption[] = [
   ...SUPPORTED_LANGUAGES.filter((code) => code !== DEFAULT_LANGUAGE).map((code) => ({
     value: code,
     label: LANGUAGE_NAMES[code],
-    flag: LANGUAGE_FLAGS[code],
   })),
-  { value: DEFAULT_LANGUAGE, label: LANGUAGE_NAMES[DEFAULT_LANGUAGE], flag: LANGUAGE_FLAGS[DEFAULT_LANGUAGE] },
+  { value: DEFAULT_LANGUAGE, label: LANGUAGE_NAMES[DEFAULT_LANGUAGE] },
 ];

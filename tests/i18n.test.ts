@@ -10,7 +10,6 @@ import en from "../app/i18n/messages/en.json";
 import { checkLocales } from "../scripts/check-locales.mjs";
 import {
   DEFAULT_LANGUAGE,
-  LANGUAGE_FLAGS,
   LANGUAGE_NAMES,
   SUPPORTED_LANGUAGES,
   normalizeLanguage,
@@ -82,10 +81,9 @@ describe("locale catalogs", () => {
     }
   });
 
-  it("has a native name and a flag for every language", () => {
+  it("has a native name for every language", () => {
     for (const language of SUPPORTED_LANGUAGES) {
       expect(LANGUAGE_NAMES[language], language).toBeTruthy();
-      expect(LANGUAGE_FLAGS[language], language).toMatch(/^[a-z]{2,3}$/);
       // Names must be written in their own language, not translated to English.
       expect(LANGUAGE_NAMES[language], language).not.toBe(language);
     }
