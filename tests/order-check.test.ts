@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { detailText } from "./helpers/message";
 import { ADDRESS_PRESETS, type RuleConfig } from "../extensions/cartguard-validator/src/rules";
 import { simulateOrders } from "../app/lib/cartguard.server";
 
@@ -43,7 +44,7 @@ describe("order check", () => {
       shipTo: "Austin, TX, United States",
       sections: ["address"],
     });
-    expect(result.matches[0].reasons[0]).toMatch(/^Delivery address matched/);
+    expect(detailText(result.matches[0].reasons[0])).toMatch(/^Delivery address matched/);
     expect(result.matches[1].sections).toEqual(["geo"]);
     expect(result.bySection).toEqual({ geo: 1, address: 1, quantity: 0, vip: 0 });
   });
@@ -80,7 +81,7 @@ describe("order check with amount limits", () => {
     );
     expect(result.blocked).toBe(2);
     expect(result.bySection.quantity).toBe(2);
-    expect(result.matches[0].reasons[0]).toMatch(/above the maximum/);
-    expect(result.matches[1].reasons[0]).toMatch(/below the minimum/);
+    expect(detailText(result.matches[0].reasons[0])).toMatch(/above the maximum/);
+    expect(detailText(result.matches[1].reasons[0])).toMatch(/below the minimum/);
   });
 });

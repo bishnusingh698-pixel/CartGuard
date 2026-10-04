@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { detailText } from "./helpers/message";
 import { run } from "../extensions/cartguard-validator/src/run";
 import {
   ADDRESS_PRESETS,
@@ -253,7 +254,7 @@ describe("admin helpers", () => {
     const result = simulateOrders(orders, config({ regexRules: [poBox], quantityLimits: { bulk: { max: 10 } } }));
     expect(result.scanned).toBe(2);
     expect(result.blocked).toBe(1);
-    expect(result.samples[0]).toContain("#1001");
+    expect(detailText(result.samples[0])).toContain("#1001");
   });
 });
 
@@ -371,7 +372,7 @@ describe("minimum and maximum limits", () => {
     const violations = evaluateCart(line(1, 600), config({ quantityLimits: { all: { maxAmount: 500 } } }));
     expect(violations).toHaveLength(1);
     expect(violations[0]).toMatchObject({ rule: "amount", target: "$.cart.cost.totalAmount" });
-    expect(violations[0].detail).toMatch(/\$600\.00/);
+    expect(detailText(violations[0].detail)).toMatch(/\$600\.00/);
     expect(evaluateCart(line(1, 500), config({ quantityLimits: { all: { maxAmount: 500 } } }))).toHaveLength(0);
   });
 
@@ -439,7 +440,7 @@ describe("minimum and maximum limits", () => {
     const rules = config({ quantityLimits: { all: { max: 10 }, bulk: { max: 3 } } });
     const violations = evaluateCart(tagged(5, "bulk"), rules);
     expect(violations).toHaveLength(1);
-    expect(violations[0].detail).toContain('tag "bulk"');
+    expect(detailText(violations[0].detail)).toContain('tag "bulk"');
     expect(evaluateCart(tagged(5, "other"), rules)).toHaveLength(0);
   });
 

@@ -27,8 +27,17 @@ import {
 } from "@shopify/polaris";
 
 import { useI18n } from "../i18n/context";
+import type { Language } from "../i18n/locales";
 import { friendlyErrorMessage } from "../lib/admin-api.server";
-import { type ImpactMatch, type ImpactResult, effectiveRaw, parseConfig, readConfiguration, simulateImpact } from "../lib/cartguard.server";
+import {
+  type ImpactMatch,
+  type ImpactResult,
+  effectiveRaw,
+  parseConfig,
+  readConfiguration,
+  simulateImpact,
+} from "../lib/cartguard.server";
+import { resolveMessage } from "../lib/message";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { type RuleSection, SECTION_TITLE_KEY, formatShare, summarizeSections } from "../lib/rule-summary";
 
@@ -87,7 +96,7 @@ function orderCell(match: ImpactMatch, isDemo: boolean, t: TFn): ReactNode {
   );
 }
 
-function reasonCell(match: ImpactMatch, t: TFn): ReactNode {
+function reasonCell(match: ImpactMatch, t: TFn, language: Language): ReactNode {
   return (
     <BlockStack gap="100">
       <InlineStack gap="100" wrap>
@@ -96,8 +105,8 @@ function reasonCell(match: ImpactMatch, t: TFn): ReactNode {
         ))}
       </InlineStack>
       {match.reasons.map((reason, index) => (
-        <Text as="span" variant="bodySm" key={`${index}-${reason}`}>
-          {reason}
+        <Text as="span" variant="bodySm" key={`${index}-${reason.key}`}>
+          {resolveMessage(language, reason)}
         </Text>
       ))}
     </BlockStack>
@@ -122,7 +131,19 @@ function LoadingState({ t }: { t: TFn }) {
   );
 }
 
-function Results({ impact, isDemo, t, number }: { impact: ImpactResult; isDemo: boolean; t: TFn; number: (n: number) => string }) {
+function Results({
+  impact,
+  isDemo,
+  t,
+  number,
+  language,
+}: {
+  impact: ImpactResult;
+  isDemo: boolean;
+  t: TFn;
+  number: (n: number) => string;
+  language: Language;
+}) {
   if (impact.scanned === 0) {
     return (
       <Card>
@@ -168,7 +189,11 @@ function Results({ impact, isDemo, t, number }: { impact: ImpactResult; isDemo: 
           <DataTable
             columnContentTypes={["text", "text", "text"]}
             headings={[t("orders.heading.order"), t("orders.heading.shipsTo"), t("orders.heading.reason")]}
-            rows={impact.matches.map((match) => [orderCell(match, isDemo, t), match.shipTo, reasonCell(match, t)])}
+            rows={impact.matches.map((match) => [
+              orderCell(match, isDemo, t),
+              match.shipTo ?? t("impact.noAddress"),
+              reasonCell(match, t, language),
+            ])}
             verticalAlign="top"
           />
         </Card>
@@ -228,7 +253,7 @@ export default function OrderCheckPage() {
       </Banner>
     );
   } else {
-    body = <Results impact={data.impact} isDemo={isDemo} t={t} number={number} />;
+    body = <Results impact={data.impact} isDemo={isDemo} t={t} number={number} language={language} />;
   }
 
   return (

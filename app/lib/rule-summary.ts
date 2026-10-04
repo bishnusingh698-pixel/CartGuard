@@ -78,13 +78,23 @@ function joinNames(items: string[], locale: string): string {
   return new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(items);
 }
 
-/** Merchant-facing name for a quantity limit key. */
-export function limitTargetLabel(key: string): string {
+/** A value interpolated into a message: literal text, or a nested message. */
+export type MessageValue = string | number | ValidationMessage | ValidationMessage[];
+
+/**
+ * A message as a catalog key plus its interpolations. Keeping these as keys
+ * rather than finished English means the reader's language chooses the wording,
+ * and labels embedded in them can be translated too.
+ */
+export type ValidationMessage = { key: string; values?: Record<string, MessageValue> };
+
+/** The display name of a limit's target as a catalog key plus its interpolations. */
+export function limitTargetLabel(key: string): { key: string; values?: Record<string, string> } {
   const trimmed = key.trim();
-  if (trimmed === "*" || trimmed.toLowerCase() === "all") return "Every product";
-  if (trimmed.startsWith(PRODUCT_GID_PREFIX)) return `Product ${trimmed.slice(PRODUCT_GID_PREFIX.length)}`;
-  if (/^\d+$/.test(trimmed)) return `Product ${trimmed}`;
-  return `Products tagged "${trimmed}"`;
+  if (trimmed === "*" || trimmed.toLowerCase() === "all") return { key: "label.target.all" };
+  if (trimmed.startsWith(PRODUCT_GID_PREFIX)) return { key: "label.target.productId", values: { id: trimmed.slice(PRODUCT_GID_PREFIX.length) } };
+  if (/^\d+$/.test(trimmed)) return { key: "label.target.productId", values: { id: trimmed } };
+  return { key: "label.target.tag", values: { tag: trimmed } };
 }
 
 const BUILT_IN_LABELS: Record<string, MessageKey> = {

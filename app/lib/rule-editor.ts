@@ -28,7 +28,7 @@ import {
   type RuleConfig,
 } from "../../extensions/cartguard-validator/src/rules";
 import { findCountry, isCountryCode, isValidStateEntry } from "./regions";
-import { formatNumber, type RuleSection } from "./rule-summary";
+import { type RuleSection } from "./rule-summary";
 
 export const MESSAGE_MAX_LENGTH = 250;
 export { MAX_ORDER_AMOUNT, MAX_UNITS };
@@ -368,9 +368,9 @@ function scopedEntryValid(entry: string, parse: (raw: string) => ParseResult): b
 }
 
 export function patternProblem(pattern: string): string | null {
-  if (pattern.length > MAX_PATTERN_LENGTH) return `Keep the pattern under ${MAX_PATTERN_LENGTH} characters.`;
-  if (!compileRegex(pattern)) return "This pattern isn't valid. Check for unmatched brackets.";
-  if (isRiskyPattern(pattern)) return "This pattern could slow down checkout. Try a simpler one.";
+  if (pattern.length > MAX_PATTERN_LENGTH) return `editor.pattern.tooLong`;
+  if (!compileRegex(pattern)) return "editor.pattern.invalid";
+  if (isRiskyPattern(pattern)) return "editor.pattern.risky";
   return null;
 }
 
@@ -386,28 +386,35 @@ export const LIST_FIELD_IDS = {
   vipAddresses: "vip.addresses",
 } as const;
 
+/**
+ * A validation message as a catalog key plus its interpolations, so the reader's
+ * language chooses the wording and the plural form.
+ */
+export type ErrorMessage = { key: string; values?: Record<string, string | number> };
+
 export type EditorErrors = {
   /** Keyed by row id or LIST_FIELD_IDS entry, then by field name. */
-  fields: Record<string, Record<string, string>>;
+  fields: Record<string, Record<string, ErrorMessage>>;
   bySection: Record<RuleSection, number>;
   total: number;
 };
 
 export function validateEditor(state: EditorState): EditorErrors {
   const errors: EditorErrors = { fields: {}, bySection: { geo: 0, address: 0, quantity: 0, vip: 0 }, total: 0 };
-  const add = (section: RuleSection, id: string, field: string, message: string) => {
+  const add = (section: RuleSection, id: string, field: string, message: ErrorMessage) => {
     const bucket = (errors.fields[id] ??= {});
     if (bucket[field]) return;
     bucket[field] = message;
     errors.bySection[section] += 1;
     errors.total += 1;
   };
+  const msg = (key: string, values?: Record<string, string | number>): ErrorMessage => ({ key, values });
   const accepts = (parse: (raw: string) => ParseResult) => (value: string) => !("error" in parse(value));
   const checkList = (section: RuleSection, id: string, values: string[], valid: (value: string) => boolean) => {
     const invalid = values.filter((value) => !valid(value));
     if (invalid.length === 0) return;
-    const shown = invalid.slice(0, 5).join(", ");
-    add(section, id, "list", `Remove ${invalid.length === 1 ? "this entry, it isn't" : "these entries, they aren't"} valid: ${shown}${invalid.length > 5 ? "…" : ""}`);
+    const shown = invalid.slice(0, 5).join(", ") + (invalid.length > 5 ? "…" : "");
+    add(section, id, "list", msg(invalid.length === 1 ? "editor.list.removeOne" : "editor.list.removeMany", { values: shown }));
   };
 
   // Entries saved by older versions may not pass today's checks.
@@ -423,17 +430,17 @@ export function validateEditor(state: EditorState): EditorErrors {
     const text = row.text.trim();
     if (!text) {
       if (row.city.trim() || row.message.trim() || row.country) {
-        add("address", row.id, "text", row.match === "contains" ? "Enter the address text to block, or remove this address." : "Enter a pattern, or remove this address.");
+        add("address", row.id, "text", msg(row.match === "contains" ? "editor.address.needText" : "editor.address.needPattern"));
       }
     } else if (row.match === "contains") {
-      if (text.length < 2) add("address", row.id, "text", "Use at least 2 characters so normal addresses aren't blocked by accident.");
-      else if (!/[\p{L}\p{N}]/u.test(text)) add("address", row.id, "text", "Include at least one letter or number.");
+      if (text.length < 2) add("address", row.id, "text", msg("editor.address.minChars", { min: 2 }));
+      else if (!/[\p{L}\p{N}]/u.test(text)) add("address", row.id, "text", msg("editor.address.needAlnum"));
     } else {
       const problem = patternProblem(text);
-      if (problem) add("address", row.id, "text", problem);
+      if (problem) add("address", row.id, "text", msg(problem));
     }
-    if (row.country && !isCountryCode(row.country)) add("address", row.id, "country", "Choose a country from the list.");
-    if (row.city.trim() && "error" in parseCity(row.city)) add("address", row.id, "city", "Enter a real city name, or leave this blank.");
+    if (row.country && !isCountryCode(row.country)) add("address", row.id, "country", msg("editor.address.needCountry"));
+    if (row.city.trim() && "error" in parseCity(row.city)) add("address", row.id, "city", msg("editor.address.needCity"));
   }
 
   const seen = new Set<string>();
@@ -442,44 +449,44 @@ export function validateEditor(state: EditorState): EditorErrors {
     const amountFields = row.target === "all" && (row.minAmount.trim() || row.maxAmount.trim());
     if (row.target !== "all" && !value) {
       if (row.min.trim() || row.max.trim() || row.message.trim() || amountFields) {
-        add("quantity", row.id, "value", row.target === "tag" ? "Enter a product tag, or remove this limit." : "Enter a product ID, or remove this limit.");
+        add("quantity", row.id, "value", msg(row.target === "tag" ? "editor.quantity.needTag" : "editor.quantity.needProductId"));
       }
       continue;
     }
     if (row.target === "product" && !/^\d+$/.test(value.replace(PRODUCT_GID_PREFIX, ""))) {
-      add("quantity", row.id, "value", "Product IDs are numbers only. Copy it from the end of the product's page address in Shopify.");
+      add("quantity", row.id, "value", msg("editor.quantity.idNumbers"));
     }
-    if (row.target === "tag" && value.length > 255) add("quantity", row.id, "value", "Tags can't be longer than 255 characters.");
+    if (row.target === "tag" && value.length > 255) add("quantity", row.id, "value", msg("editor.quantity.tagTooLong", { max: 255 }));
     const key = limitKey(row)?.toLowerCase();
     if (key) {
-      if (seen.has(key)) add("quantity", row.id, "value", "You already have a limit for this. Change or remove one of them.");
+      if (seen.has(key)) add("quantity", row.id, "value", msg("editor.quantity.duplicate"));
       seen.add(key);
     }
 
     const min = readUnits(row.min);
     const max = readUnits(row.max);
-    if (min === null) add("quantity", row.id, "min", `Enter a whole number from 1 to ${formatNumber(MAX_UNITS)}, or leave it blank.`);
-    if (max === null) add("quantity", row.id, "max", `Enter a whole number from 1 to ${formatNumber(MAX_UNITS)}, or leave it blank.`);
+    if (min === null) add("quantity", row.id, "min", msg("editor.quantity.units", { max: MAX_UNITS }));
+    if (max === null) add("quantity", row.id, "max", msg("editor.quantity.units", { max: MAX_UNITS }));
     if (min !== null && max !== null && min !== undefined && max !== undefined && min > max) {
-      add("quantity", row.id, "min", "The minimum can't be more than the maximum.");
+      add("quantity", row.id, "min", msg("editor.quantity.minAboveMax"));
     }
     if (min === undefined && max === undefined && !amountFields) {
-      add("quantity", row.id, "max", "Set a minimum, a maximum or an order amount. Remove this limit if you don't need it.");
+      add("quantity", row.id, "max", msg("editor.quantity.needAnyBound"));
     }
 
     if (row.target !== "all") {
       // Amount bounds are order-wide, so they belong on the "Every product" row.
       for (const field of ["minAmount", "maxAmount"] as const) {
-        if (row[field].trim()) add("quantity", row.id, field, 'Order amounts only apply to the "Every product" limit.');
+        if (row[field].trim()) add("quantity", row.id, field, msg("editor.quantity.amountOnlyAll"));
       }
       continue;
     }
     const minAmount = readAmount(row.minAmount);
     const maxAmount = readAmount(row.maxAmount);
-    if (minAmount === null) add("quantity", row.id, "minAmount", `Enter an amount up to ${formatNumber(MAX_ORDER_AMOUNT)}, or leave it blank.`);
-    if (maxAmount === null) add("quantity", row.id, "maxAmount", `Enter an amount up to ${formatNumber(MAX_ORDER_AMOUNT)}, or leave it blank.`);
+    if (minAmount === null) add("quantity", row.id, "minAmount", msg("editor.quantity.amount", { max: MAX_ORDER_AMOUNT }));
+    if (maxAmount === null) add("quantity", row.id, "maxAmount", msg("editor.quantity.amount", { max: MAX_ORDER_AMOUNT }));
     if (minAmount !== null && maxAmount !== null && minAmount !== undefined && maxAmount !== undefined && minAmount > maxAmount) {
-      add("quantity", row.id, "minAmount", "The smallest order can't be more than the largest one.");
+      add("quantity", row.id, "minAmount", msg("editor.quantity.minAmountAboveMax"));
     }
   }
 

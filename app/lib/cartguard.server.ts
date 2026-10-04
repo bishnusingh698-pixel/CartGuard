@@ -20,12 +20,12 @@ import {
   setMetafields,
 } from "./admin-api.server";
 import { countryName, findCountry, isValidStateEntry } from "./regions";
-import { type RuleSection, formatNumber, limitTargetLabel } from "./rule-summary";
+import { DEFAULT_LANGUAGE, type Language } from "../i18n/catalog";
+import { type MessageValue, type RuleSection, type ValidationMessage, limitTargetLabel } from "./rule-summary";
 import { ensureValidationEnabled } from "./validation.server";
 import {
   ADDRESS_PRESETS,
   FEATURE_FLAGS,
-  type AddressPreset,
   type CartAddress,
   type CartGuardSettings,
   type CartInput,
@@ -65,22 +65,24 @@ const MAX_QUANTITY_LIMITS = 50;
 const MAX_LIST_ENTRIES = 500;
 const MAX_ENTRY_LENGTH = 255;
 const GEO_KEYS = ["countries", "zips", "cities", "states"] as const;
-const GEO_LABELS: Record<(typeof GEO_KEYS)[number], string> = {
-  countries: "countries",
-  zips: "postal codes",
-  cities: "cities",
-  states: "states and provinces",
+const GEO_LABEL_KEYS: Record<(typeof GEO_KEYS)[number], string> = {
+  countries: "label.geo.countries",
+  zips: "label.geo.zips",
+  cities: "label.geo.cities",
+  states: "label.geo.states",
 };
 
-export type SectionErrors = Partial<Record<RuleSection, string>>;
+export type SectionErrors = Partial<Record<RuleSection, ValidationMessage>>;
 
 /** One recent order the rules would have stopped. */
 export type ImpactMatch = {
   /** Numeric order ID, for linking to the order in Shopify admin. */
   orderId: string | null;
   name: string;
-  shipTo: string;
-  reasons: string[];
+  /** Localised "City, Region, Country", or null when the order has no address. */
+  shipTo: string | null;
+  /** Reasons as catalog keys, translated where they are shown. */
+  reasons: ValidationMessage[];
   sections: RuleSection[];
 };
 
@@ -88,7 +90,7 @@ export type ImpactResult = {
   scanned: number;
   blocked: number;
   /** Up to 5 one-line examples, for inline summaries. */
-  samples: string[];
+  samples: ValidationMessage[];
   /** Every order that would have been stopped. */
   matches: ImpactMatch[];
   /** Orders stopped by each section. An order can count in several. */
@@ -100,10 +102,11 @@ export type ActionResponse = {
   saved?: boolean;
   needsConfirm?: boolean;
   impact?: ImpactResult;
-  impactError?: string;
+  /** Catalog keys plus values; the route translates them for the reader. */
+  impactError?: ValidationMessage;
   validationWarning?: string;
   sectionErrors?: SectionErrors;
-  message?: string;
+  message?: ValidationMessage;
 };
 
 /* Reading */
@@ -156,7 +159,21 @@ export function effectiveRaw(stored: StoredConfiguration): RawConfig {
 
 /* Validation */
 
-const RELOAD_HINT = "Reload the page and try again.";
+export type { MessageValue, ValidationMessage };
+
+const msg = (key: string, values?: Record<string, MessageValue>): ValidationMessage => ({ key, values });
+
+export { resolveMessage } from "./message";
+
+/**
+ * Reasons are shown as standalone lines, so they use the sentence-cased wording.
+ * The validator only knows the lower-case fragment, which also appears mid-sentence
+ * inside an impact sample.
+ */
+const asReason = (detail: ValidationMessage): ValidationMessage => ({
+  key: detail.key.replace(/^violation\.detail\./, "violation.reason."),
+  values: detail.values,
+});
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).length;
@@ -181,13 +198,13 @@ function readStringList(value: unknown): string[] | null {
   return (value as string[]).map((entry) => entry.trim()).filter(Boolean);
 }
 
-function addressRuleLabel(rule: Record<string, unknown>): string {
+function addressRuleLabel(rule: Record<string, unknown>): ValidationMessage {
   if (typeof rule.preset === "string" && Object.hasOwn(ADDRESS_PRESETS, rule.preset)) {
-    return `The ${ADDRESS_PRESETS[rule.preset as AddressPreset].label}`;
+    return msg(`label.address.${rule.preset === "po_box" ? "poBox" : "military"}`);
   }
-  if (rule.preset === "keywords") return "The blocked words rule";
+  if (rule.preset === "keywords") return msg("label.address.keywords");
   const text = typeof rule.street === "string" && rule.street ? rule.street : typeof rule.pattern === "string" ? rule.pattern : "";
-  return text ? `The address rule for "${text.slice(0, 40)}"` : "An address rule";
+  return text ? msg("label.address.forText", { text: text.slice(0, 40) }) : msg("label.address.generic");
 }
 
 /**
@@ -195,8 +212,8 @@ function addressRuleLabel(rule: Record<string, unknown>): string {
  * value can't be saved. A bare number is the historical "max" shorthand.
  * Both readers answer null for anything absent, so presence is checked first.
  */
-function readLimitBounds(key: string, value: unknown, add: (section: RuleSection, message: string) => void): QuantityLimit | null {
-  const label = limitTargetLabel(key);
+function readLimitBounds(key: string, value: unknown, add: (section: RuleSection, message: ValidationMessage) => void): QuantityLimit | null {
+  const target = limitTargetLabel(key);
   const units = (raw: unknown): number | null => {
     // A bound of 0 would block every order containing the product, so the
     // smallest usable unit bound is 1 and "no bound" is left unset.
@@ -211,13 +228,13 @@ function readLimitBounds(key: string, value: unknown, add: (section: RuleSection
   if (typeof value === "number") {
     const max = units(value);
     if (max === null) {
-      add("quantity", `${label}: the limit must be a whole number from 1 to ${formatNumber(MAX_UNITS)}.`);
+      add("quantity", msg("server.quantity.unitsRange", { label: target, max: MAX_UNITS }));
       return null;
     }
     return { max };
   }
   if (!isRecord(value)) {
-    add("quantity", `${label}: the limit couldn't be read. ${RELOAD_HINT}`);
+    add("quantity", msg("server.quantity.boundsUnreadable", { label: target, hint: "server.hint.reload" }));
     return null;
   }
 
@@ -225,7 +242,7 @@ function readLimitBounds(key: string, value: unknown, add: (section: RuleSection
   const hasUnits = present(value.min) || present(value.max);
   const hasAmount = present(value.minAmount) || present(value.maxAmount);
   if (!hasUnits && !hasAmount) {
-    add("quantity", `${label}: set a minimum, a maximum or an order amount, or remove this limit.`);
+    add("quantity", msg("server.quantity.needBounds", { label: target }));
     return null;
   }
 
@@ -234,25 +251,25 @@ function readLimitBounds(key: string, value: unknown, add: (section: RuleSection
   const minAmount = money(value.minAmount);
   const maxAmount = money(value.maxAmount);
   if ((present(value.min) && min === null) || (present(value.max) && max === null)) {
-    add("quantity", `${label}: unit limits must be whole numbers from 1 to ${formatNumber(MAX_UNITS)}.`);
+    add("quantity", msg("server.quantity.unitsRange", { label: target, max: MAX_UNITS }));
     return null;
   }
   if ((present(value.minAmount) && minAmount === null) || (present(value.maxAmount) && maxAmount === null)) {
-    add("quantity", `${label}: order amounts must be between 0 and ${formatNumber(MAX_ORDER_AMOUNT)}.`);
+    add("quantity", msg("server.quantity.amountRange", { label: target, max: MAX_ORDER_AMOUNT }));
     return null;
   }
   // Amount bounds are order-wide; on a product-specific row they would be
   // ambiguous, so the editor moves them to the "Every product" limit.
   if (hasAmount && !isGlobalLimitKey(key)) {
-    add("quantity", `${label}: order amounts only apply to the "Every product" limit.`);
+    add("quantity", msg("server.quantity.amountOnlyAll", { label: target }));
     return null;
   }
   if (min !== null && max !== null && min > max) {
-    add("quantity", `${label}: the minimum can't be more than the maximum.`);
+    add("quantity", msg("server.quantity.minAboveMax", { label: target }));
     return null;
   }
   if (minAmount !== null && maxAmount !== null && minAmount > maxAmount) {
-    add("quantity", `${label}: the smallest order can't be more than the largest one.`);
+    add("quantity", msg("server.quantity.minAmountAboveMax", { label: target }));
     return null;
   }
 
@@ -272,7 +289,7 @@ const isGlobalLimitKey = (key: string): boolean => key === "*" || key.toLowerCas
  */
 export function validateRuleConfig(input: unknown): { config: RuleConfig | null; errors: SectionErrors } {
   const errors: SectionErrors = {};
-  const add = (section: RuleSection, message: string) => {
+  const add = (section: RuleSection, message: ValidationMessage) => {
     errors[section] ??= message;
   };
   const body = isRecord(input) ? input : {};
@@ -285,36 +302,36 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
   const regexRules: RegexRule[] = [];
   const rawRules = body.regexRules ?? [];
   if (!Array.isArray(rawRules)) {
-    add("address", `Your address rules couldn't be read. ${RELOAD_HINT}`);
+    add("address", msg("server.address.rulesUnreadable", { hint: "server.hint.reload" }));
   } else {
-    if (rawRules.length > MAX_REGEX_RULES) add("address", `You can have up to ${MAX_REGEX_RULES} address rules. Remove some and try again.`);
+    if (rawRules.length > MAX_REGEX_RULES) add("address", msg("server.address.tooManyRules", { max: MAX_REGEX_RULES }));
     for (const raw of rawRules.slice(0, MAX_REGEX_RULES)) {
       if (!isRecord(raw)) {
-        add("address", `An address rule couldn't be read. ${RELOAD_HINT}`);
+        add("address", msg("server.address.ruleUnreadable", { hint: "server.hint.reload" }));
         continue;
       }
       const label = addressRuleLabel(raw);
       const pattern = typeof raw.pattern === "string" ? raw.pattern.trim() : "";
       if (!pattern) {
-        add("address", `${label} is empty. Enter the text to block or remove it.`);
+        add("address", msg("server.address.isEmpty", { label }));
         continue;
       }
       if (pattern.length > MAX_PATTERN_LENGTH) {
-        add("address", `${label} is longer than ${MAX_PATTERN_LENGTH} characters. Shorten it.`);
+        add("address", msg("server.address.patternTooLong", { label, max: MAX_PATTERN_LENGTH }));
         continue;
       }
       if (!compileRegex(pattern)) {
-        add("address", `${label} has a pattern that isn't valid.`);
+        add("address", msg("server.address.patternInvalid", { label }));
         continue;
       }
       if (isRiskyPattern(pattern)) {
-        add("address", `${label} could slow down checkout. Simplify the pattern.`);
+        add("address", msg("server.address.patternRisky", { label }));
         continue;
       }
       const rule: RegexRule = { pattern };
       if (raw.message !== undefined) {
         if (typeof raw.message !== "string" || raw.message.length > MAX_MESSAGE_LENGTH) {
-          add("address", `${label} has a customer message longer than ${MAX_MESSAGE_LENGTH} characters.`);
+          add("address", msg("server.address.messageTooLong", { label, max: MAX_MESSAGE_LENGTH }));
           continue;
         }
         if (raw.message.trim()) rule.message = raw.message.trim();
@@ -322,14 +339,14 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
       if (raw.country !== undefined && raw.country !== "") {
         const code = typeof raw.country === "string" ? findCountry(raw.country) : null;
         if (!code) {
-          add("address", `${label} is limited to a country we don't recognise. Choose one from the list.`);
+          add("address", msg("server.address.countryUnknown", { label }));
           continue;
         }
         rule.country = code;
       }
       if (typeof raw.city === "string" && raw.city.trim()) {
         if (raw.city.length > MAX_ENTRY_LENGTH) {
-          add("address", `${label} has a city name that's too long.`);
+          add("address", msg("server.address.cityTooLong", { label }));
           continue;
         }
         rule.city = raw.city.trim();
@@ -346,23 +363,23 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
   const quantityLimits: Record<string, QuantityLimit> = {};
   const rawLimits = body.quantityLimits ?? {};
   if (!isRecord(rawLimits)) {
-    add("quantity", `Your quantity limits couldn't be read. ${RELOAD_HINT}`);
+    add("quantity", msg("server.quantity.limitsUnreadable", { hint: "server.hint.reload" }));
   } else {
     const entries = Object.entries(rawLimits);
-    if (entries.length > MAX_QUANTITY_LIMITS) add("quantity", `You can have up to ${MAX_QUANTITY_LIMITS} quantity limits. Remove some and try again.`);
+    if (entries.length > MAX_QUANTITY_LIMITS) add("quantity", msg("server.quantity.tooManyLimits", { max: MAX_QUANTITY_LIMITS }));
     for (const [rawKey, value] of entries.slice(0, MAX_QUANTITY_LIMITS)) {
       const key = rawKey.trim();
       if (!key || key.length > MAX_ENTRY_LENGTH) {
-        add("quantity", "Every quantity limit needs a product tag, a product ID or Every product.");
+        add("quantity", msg("server.quantity.needTarget"));
         continue;
       }
-      const label = limitTargetLabel(key);
+      const target = limitTargetLabel(key);
       const bounds = readLimitBounds(key, value, add);
       if (!bounds) continue;
       let message: string | undefined;
       if (isRecord(value) && value.message !== undefined) {
         if (typeof value.message !== "string" || value.message.length > MAX_MESSAGE_LENGTH) {
-          add("quantity", `${label}: keep the customer message under ${MAX_MESSAGE_LENGTH} characters.`);
+          add("quantity", msg("server.quantity.messageTooLong", { label: target, max: MAX_MESSAGE_LENGTH }));
           continue;
         }
         if (value.message.trim()) message = value.message.trim();
@@ -375,27 +392,27 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
   const geoBlocklist: GeoBlocklist = { countries: [], zips: [], cities: [], states: [] };
   const rawGeo = body.geoBlocklist ?? {};
   if (!isRecord(rawGeo)) {
-    add("geo", `Your blocked areas couldn't be read. ${RELOAD_HINT}`);
+    add("geo", msg("server.geo.areasUnreadable", { hint: "server.hint.reload" }));
   } else {
     for (const key of GEO_KEYS) {
       const list = readStringList(rawGeo[key]);
       if (!list) {
-        add("geo", `Your blocked ${GEO_LABELS[key]} couldn't be read. ${RELOAD_HINT}`);
+        add("geo", msg("server.geo.listUnreadable", { field: GEO_LABEL_KEYS[key], hint: "server.hint.reload" }));
         continue;
       }
-      if (list.length > MAX_LIST_ENTRIES) add("geo", `You can block up to ${MAX_LIST_ENTRIES} ${GEO_LABELS[key]}.`);
-      if (list.some((entry) => entry.length > MAX_ENTRY_LENGTH)) add("geo", `One of your blocked ${GEO_LABELS[key]} is too long.`);
+      if (list.length > MAX_LIST_ENTRIES) add("geo", msg("server.geo.tooMany", { field: GEO_LABEL_KEYS[key], max: MAX_LIST_ENTRIES }));
+      if (list.some((entry) => entry.length > MAX_ENTRY_LENGTH)) add("geo", msg("server.geo.entryTooLong", { field: GEO_LABEL_KEYS[key] }));
       geoBlocklist[key] = uniqueCaseInsensitive(list.slice(0, MAX_LIST_ENTRIES));
     }
     const resolved = geoBlocklist.countries.map((raw) => ({ raw, code: findCountry(raw) }));
     const unknown = resolved.filter((entry) => !entry.code).map((entry) => entry.raw);
     if (unknown.length > 0) {
-      add("geo", `We don't recognise these countries: ${unknown.slice(0, 5).join(", ")}. Choose them from the list instead.`);
+      add("geo", msg("server.geo.unknownCountries", { values: unknown.slice(0, 5).join(", ") }));
     }
     geoBlocklist.countries = uniqueCaseInsensitive(resolved.map((entry) => entry.code ?? entry.raw.toUpperCase()));
     const badStates = geoBlocklist.states.filter((entry) => !isValidStateEntry(entry));
     if (badStates.length > 0) {
-      add("geo", `These states or provinces aren't valid: ${badStates.slice(0, 5).join(", ")}. Choose them from the list instead.`);
+      add("geo", msg("server.geo.badStates", { values: badStates.slice(0, 5).join(", ") }));
     }
   }
 
@@ -403,17 +420,17 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
   let vipAllowlist: string[] = [];
   const rawVip = readStringList(body.vipAllowlist);
   if (!rawVip) {
-    add("vip", `Your trusted customers couldn't be read. ${RELOAD_HINT}`);
+    add("vip", msg("server.vip.unreadable", { hint: "server.hint.reload" }));
   } else {
-    if (rawVip.length > MAX_LIST_ENTRIES) add("vip", `You can have up to ${MAX_LIST_ENTRIES} trusted customers.`);
-    if (rawVip.some((entry) => entry.length > MAX_ENTRY_LENGTH)) add("vip", `A trusted customer entry is longer than ${MAX_ENTRY_LENGTH} characters.`);
+    if (rawVip.length > MAX_LIST_ENTRIES) add("vip", msg("server.vip.tooMany", { max: MAX_LIST_ENTRIES }));
+    if (rawVip.some((entry) => entry.length > MAX_ENTRY_LENGTH)) add("vip", msg("server.vip.entryTooLong", { max: MAX_ENTRY_LENGTH }));
     // Short address entries are ignored at checkout, so surface them instead of failing silently.
     const tooShort = rawVip.filter((entry) => {
       const normalized = normalizeText(entry);
       return normalized !== "" && !normalized.includes("@") && normalized.length < MIN_VIP_ADDRESS_LENGTH;
     });
     if (tooShort.length > 0) {
-      add("vip", `Street addresses need at least ${MIN_VIP_ADDRESS_LENGTH} characters: ${tooShort.slice(0, 5).join(", ")}.`);
+      add("vip", msg("server.vip.addressTooShort", { min: MIN_VIP_ADDRESS_LENGTH, values: tooShort.slice(0, 5).join(", ") }));
     }
     vipAllowlist = uniqueCaseInsensitive(rawVip.slice(0, MAX_LIST_ENTRIES));
   }
@@ -431,7 +448,7 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
     ];
     for (const [key, section] of sizeChecks) {
       if (byteLength(values[key]) > MAX_METAFIELD_BYTES) {
-        add(section, `This section is too large for Shopify checkout (over ${MAX_METAFIELD_BYTES / 1000} KB). Remove some entries.`);
+        add(section, msg("server.size.tooLarge", { max: MAX_METAFIELD_BYTES / 1000 }));
       }
     }
   }
@@ -626,17 +643,16 @@ const VIOLATION_SECTION: Record<ViolationRule, RuleSection> = {
   amount: "quantity",
 };
 
-const capitalize = (text: string) => (text ? text[0].toUpperCase() + text.slice(1) : text);
 
-function describeShipTo(address: CartAddress | null | undefined): string {
-  if (!address) return "No shipping address";
-  const country = address.countryCode ? countryName(address.countryCode) : null;
-  return [address.city, address.provinceCode, country].filter(Boolean).join(", ") || "No shipping address";
+function describeShipTo(address: CartAddress | null | undefined, language: Language): string | null {
+  if (!address) return null;
+  const country = address.countryCode ? countryName(address.countryCode, language) : null;
+  return [address.city, address.provinceCode, country].filter(Boolean).join(", ") || null;
 }
 
-export function simulateOrders(orders: OrderNode[], config: RuleConfig): ImpactResult {
+export function simulateOrders(orders: OrderNode[], config: RuleConfig, language: Language = DEFAULT_LANGUAGE): ImpactResult {
   let blocked = 0;
-  const samples: string[] = [];
+  const samples: ValidationMessage[] = [];
   const matches: ImpactMatch[] = [];
   const bySection: Record<RuleSection, number> = { geo: 0, address: 0, quantity: 0, vip: 0 };
   const limitTags = new Set(collectLimitTags(config.quantityLimits).map((tag) => tag.trim().toLowerCase()));
@@ -645,17 +661,20 @@ export function simulateOrders(orders: OrderNode[], config: RuleConfig): ImpactR
     if (violations.length === 0) continue;
     blocked += 1;
     const orderId = order.id?.split("/").pop() ?? null;
-    const label = order.name || (orderId ? `Order ${orderId}` : "Order");
+    const label = order.name || (orderId ? String(orderId) : "");
     if (samples.length < IMPACT_SAMPLE_LIMIT) {
-      samples.push(`${label}: ${violations.slice(0, 2).map((v) => v.detail).join("; ")}`);
+      samples.push({
+        key: label ? "impact.orderSample" : "impact.orderSample.noLabel",
+        values: { label, reasons: violations.slice(0, 2).map((v) => v.detail) },
+      });
     }
     const sections = [...new Set(violations.map((violation) => VIOLATION_SECTION[violation.rule]))];
     for (const section of sections) bySection[section] += 1;
     matches.push({
       orderId,
       name: label,
-      shipTo: describeShipTo(order.shippingAddress),
-      reasons: violations.map((violation) => capitalize(violation.detail)),
+      shipTo: describeShipTo(order.shippingAddress, language),
+      reasons: violations.map((violation) => asReason(violation.detail)),
       sections,
     });
   }
@@ -666,7 +685,7 @@ type OrdersQueryResult = {
   orders?: { pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }; nodes?: OrderNode[] } | null;
 };
 
-export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promise<ImpactResult> {
+export async function simulateImpact(admin: AdminApi, config: RuleConfig, language: Language = DEFAULT_LANGUAGE): Promise<ImpactResult> {
   const orders: OrderNode[] = [];
   let after: string | null = null;
   // Shopify can return the same cursor again (a buggy pageInfo, or a cursor it
@@ -694,7 +713,7 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
     const available = queryResult.cost?.throttleStatus?.currentlyAvailable;
     if (typeof available === "number" && available < IMPACT_MIN_BUDGET) break;
   }
-  return simulateOrders(orders.slice(0, IMPACT_MAX_ORDERS), config);
+  return simulateOrders(orders.slice(0, IMPACT_MAX_ORDERS), config, language);
 }
 
 /** Re-exported for the rules route. */

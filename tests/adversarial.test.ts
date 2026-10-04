@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { detailText } from "./helpers/message";
 import {
   ADDRESS_PRESETS,
   MAX_FIELD_LENGTH,
@@ -118,7 +119,7 @@ describe("hostile rule patterns", () => {
       regexRules: [{ pattern: "(a+)+$", message: "x" }],
     });
     expect(parsed === null || Object.keys(errors).length > 0).toBe(true);
-    expect(errors.address ?? "").toMatch(/slow down checkout/i);
+    expect(errors.address ? detailText(errors.address) : "").toMatch(/slow down checkout/i);
   });
 
   it("never evaluates a risky pattern that arrived from outside the admin", () => {

@@ -137,8 +137,8 @@ export type Violation = {
   message: string;
   /** JSONPath into the Function input. */
   target: string;
-  /** Merchant-facing explanation (Impact Checker samples). */
-  detail: string;
+  /** Merchant-facing explanation (Impact Checker samples), as a key plus values. */
+  detail: { key: string; values?: Record<string, string | number> };
 };
 
 export const MAX_REGEX_RULES = 50;
@@ -562,7 +562,7 @@ function evaluateBlockedCountries(cart: CartInput, geo: GeoBlocklist): Violation
         rule: "country",
         message: DEFAULT_GEO_MESSAGE,
         target: addressTarget(groupIndex, "countryCode"),
-        detail: `country ${country} is blocked`,
+        detail: { key: "violation.detail.country", values: { country } },
       });
     }
   }
@@ -663,14 +663,14 @@ function evaluateQuantityLimits(cart: CartInput, limits: Record<string, Quantity
         rule: "quantity",
         message: max.limit.message || `You can buy up to ${max.value} of this item per order. Please reduce the quantity.`,
         target,
-        detail: `${aggregate.quantity} units exceed the limit of ${max.value} for ${describeLimitKey(max.key)}`,
+        detail: { key: "violation.detail.quantityMax", values: { quantity: aggregate.quantity, max: max.value, target: describeLimitKey(max.key) } },
       });
     } else if (min && aggregate.quantity < min.value) {
       violations.push({
         rule: "quantity",
         message: min.limit.message || `You need at least ${min.value} of this item per order. Please increase the quantity or remove it to continue.`,
         target,
-        detail: `${aggregate.quantity} units are below the minimum of ${min.value} for ${describeLimitKey(min.key)}`,
+        detail: { key: "violation.detail.quantityMin", values: { quantity: aggregate.quantity, min: min.value, target: describeLimitKey(min.key) } },
       });
     }
   }
@@ -748,7 +748,7 @@ function evaluateOrderAmount(cart: CartInput, limits: Record<string, QuantityLim
         rule: "amount",
         message: `Orders over ${formatMoney(max, cart.currencyCode)} can't be placed online. Please contact us for help.`,
         target: "$.cart.cost.totalAmount",
-        detail: `order total ${formatMoney(total, cart.currencyCode)} is above the maximum of ${formatMoney(max, cart.currencyCode)}`,
+        detail: { key: "violation.detail.amountMax", values: { total: formatMoney(total, cart.currencyCode), max: formatMoney(max, cart.currencyCode) } },
       },
     ];
   }
@@ -758,7 +758,7 @@ function evaluateOrderAmount(cart: CartInput, limits: Record<string, QuantityLim
         rule: "amount",
         message: `Orders need to be at least ${formatMoney(min, cart.currencyCode)}. Please add more to your cart to continue.`,
         target: "$.cart.cost.totalAmount",
-        detail: `order total ${formatMoney(total, cart.currencyCode)} is below the minimum of ${formatMoney(min, cart.currencyCode)}`,
+        detail: { key: "violation.detail.amountMin", values: { total: formatMoney(total, cart.currencyCode), min: formatMoney(min, cart.currencyCode) } },
       },
     ];
   }
@@ -841,7 +841,7 @@ function evaluateAddressRules(cart: CartInput, rules: RegexRule[], vipAddresses:
         rule: "address",
         message: rule.message,
         target: addressTarget(groupIndex, hit.field),
-        detail: `delivery address matched the ${rule.label}`,
+        detail: { key: "violation.detail.address", values: { rule: rule.label } },
       });
       break; // one address error per delivery group is enough
     }
@@ -895,16 +895,16 @@ function evaluateRegionalBlocks(cart: CartInput, geo: GeoBlocklist): Violation[]
     if (country && blockedCountries.has(country)) continue;
 
     if (zipCandidates(address.zip).some((zip) => scopedHas(zips, country, zip))) {
-      violations.push({ rule: "zip", message: DEFAULT_GEO_MESSAGE, target: addressTarget(groupIndex, "zip"), detail: `ZIP/postal code ${clean(address.zip)} is blocked` });
+      violations.push({ rule: "zip", message: DEFAULT_GEO_MESSAGE, target: addressTarget(groupIndex, "zip"), detail: { key: "violation.detail.zip", values: { zip: clean(address.zip) } } });
       continue;
     }
     if (scopedHas(cities, country, normalizeCity(address.city))) {
-      violations.push({ rule: "city", message: DEFAULT_GEO_MESSAGE, target: addressTarget(groupIndex, "city"), detail: `city "${clean(address.city)}" is blocked` });
+      violations.push({ rule: "city", message: DEFAULT_GEO_MESSAGE, target: addressTarget(groupIndex, "city"), detail: { key: "violation.detail.city", values: { city: clean(address.city) } } });
       continue;
     }
     const state = normalizeText(splitCountryScope(clean(address.provinceCode), true).value);
     if (scopedHas(states, country, state)) {
-      violations.push({ rule: "state", message: DEFAULT_GEO_MESSAGE, target: addressTarget(groupIndex, "provinceCode"), detail: `state/province ${clean(address.provinceCode)} is blocked` });
+      violations.push({ rule: "state", message: DEFAULT_GEO_MESSAGE, target: addressTarget(groupIndex, "provinceCode"), detail: { key: "violation.detail.state", values: { state: clean(address.provinceCode) } } });
     }
   }
   return violations;

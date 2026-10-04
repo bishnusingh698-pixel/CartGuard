@@ -41,10 +41,12 @@ import { errorMessage, friendlyErrorMessage } from "../lib/admin-api.server";
 import {
   type ActionResponse,
   type ImpactResult,
+  type ValidationMessage,
   saveConfiguration,
   simulateImpact,
   validateRuleConfig,
 } from "../lib/cartguard.server";
+import { resolveMessage } from "../lib/message";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { type ValidationStatus } from "../lib/validation.server";
 import { CountryPicker, ListField, RegionPicker } from "../components/rule-fields";
@@ -53,6 +55,7 @@ import { describeScopedEntry, getCountryOptions, type Option } from "../lib/regi
 import {
   LIST_FIELD_IDS,
   MAX_ORDER_AMOUNT,
+  type ErrorMessage,
   MAX_UNITS,
   MESSAGE_MAX_LENGTH,
   configFromEditor,
@@ -119,7 +122,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const { config, errors } = validateRuleConfig(payload.config);
   if (!config) {
     return json<ActionResponse>(
-      { ok: false, sectionErrors: errors, message: "Some rules need fixing before they can be saved." },
+      { ok: false, sectionErrors: errors, message: { key: "rules.error.saveFailed" } },
       { status: 400 },
     );
   }
@@ -142,7 +145,7 @@ export async function action({ request }: ActionFunctionArgs) {
         return json<ActionResponse>({
           ok: true,
           needsConfirm: true,
-          impactError: `We couldn't test these rules on your recent orders. ${friendlyErrorMessage(error)} You can still save them.`,
+          impactError: { key: "rules.error.impactFailed", values: { detail: friendlyErrorMessage(error) } },
         });
       }
       if (impact.blocked > 0) {
@@ -158,7 +161,10 @@ export async function action({ request }: ActionFunctionArgs) {
     return json<ActionResponse>(
       {
         ok: false,
-        message: `${intent === "simulate" ? "The test didn't finish." : "Your rules weren't saved."} ${friendlyErrorMessage(error)}`,
+        message: {
+          key: intent === "simulate" ? "rules.error.simulateFailed" : "rules.error.saveFailedWithDetail",
+          values: { detail: friendlyErrorMessage(error) },
+        },
       },
       { status: 500 },
     );
@@ -167,17 +173,25 @@ export async function action({ request }: ActionFunctionArgs) {
 
 /* Presentational pieces */
 
+/** Turns a catalog key plus values into text in the reader's language. */
+function useErrorText() {
+  const { language } = useI18n();
+  return (message?: ErrorMessage | ValidationMessage | null) =>
+    message ? resolveMessage(language, message) : undefined;
+}
+
 type RuleSectionCardProps = {
   section: RuleSection;
   summary: SectionSummary;
   errorCount: number;
-  serverError?: string;
+  serverError?: ValidationMessage;
   onToggle: (enabled: boolean) => void;
   children: ReactNode;
 };
 
 function RuleSectionCard({ section, summary, errorCount, serverError, onToggle, children }: RuleSectionCardProps) {
   const { t } = useI18n();
+  const errorText = useErrorText();
   const meta = SECTION_META[section];
   // Entries stay saved while a section is off. If they need fixing, show them
   // anyway so a hidden problem can never block saving.
@@ -202,7 +216,7 @@ function RuleSectionCard({ section, summary, errorCount, serverError, onToggle, 
           </InlineStack>
           {serverError && (
             <Banner tone="critical">
-              <Text as="p">{serverError}</Text>
+              <Text as="p">{errorText(serverError)}</Text>
             </Banner>
           )}
           {!summary.enabled && showBody && (
@@ -234,7 +248,7 @@ function matchOptions(t: TFn) {
 type AddressRuleEditorProps = {
   row: AddressRuleRow;
   index: number;
-  errors?: Record<string, string>;
+  errors?: Record<string, ErrorMessage>;
   countryOptions: Option[];
   onChange: (patch: Partial<AddressRuleRow>) => void;
   onRemove: () => void;
@@ -242,6 +256,7 @@ type AddressRuleEditorProps = {
 
 function AddressRuleEditor({ row, index, errors, countryOptions, onChange, onRemove }: AddressRuleEditorProps) {
   const { t, number } = useI18n();
+  const errorText = useErrorText();
   // Keep a country saved by an older version selectable even if it's not in the list.
   const options =
     row.country && !countryOptions.some((option) => option.value === row.country)
@@ -270,7 +285,7 @@ function AddressRuleEditor({ row, index, errors, countryOptions, onChange, onRem
               isPattern ? t("address.patternHelp") : t("address.textHelp")
             }
             monospaced={isPattern}
-            error={errors?.text}
+            error={errorText(errors?.text)}
             autoComplete="off"
           />
         </InlineGrid>
@@ -280,14 +295,14 @@ function AddressRuleEditor({ row, index, errors, countryOptions, onChange, onRem
             options={options}
             value={row.country}
             onChange={(country) => onChange({ country })}
-            error={errors?.country}
+            error={errorText(errors?.country)}
           />
           <TextField
             label={t("address.cityLabel")}
             value={row.city}
             onChange={(city) => onChange({ city })}
             placeholder={t("address.cityPlaceholder")}
-            error={errors?.city}
+            error={errorText(errors?.city)}
             autoComplete="off"
           />
         </InlineGrid>
@@ -316,13 +331,14 @@ function targetOptions(t: TFn) {
 type LimitEditorProps = {
   row: LimitRow;
   index: number;
-  errors?: Record<string, string>;
+  errors?: Record<string, ErrorMessage>;
   onChange: (patch: Partial<LimitRow>) => void;
   onRemove: () => void;
 };
 
 function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProps) {
   const { t, number } = useI18n();
+  const errorText = useErrorText();
   const everyProduct = row.target === "all";
   const max = Number(row.max);
   const exampleMax = Number.isInteger(max) && max > 0 ? number(max) : "10";
@@ -352,7 +368,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
               onChange={(value) => onChange({ value })}
               placeholder={row.target === "tag" ? t("quantity.placeholderTag") : t("quantity.placeholderProduct")}
               helpText={row.target === "tag" ? t("quantity.placeholderTagHelp") : t("quantity.placeholderProductHelp")}
-              error={errors?.value}
+              error={errorText(errors?.value)}
               autoComplete="off"
             />
           )}
@@ -365,7 +381,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
             value={row.min}
             onChange={(value) => onChange({ min: value })}
             placeholder={t("quantity.placeholderMin")}
-            error={errors?.min}
+            error={errorText(errors?.min)}
             autoComplete="off"
           />
           <TextField
@@ -377,7 +393,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
             value={row.max}
             onChange={(value) => onChange({ max: value })}
             placeholder={t("quantity.placeholderMax")}
-            error={errors?.max}
+            error={errorText(errors?.max)}
             autoComplete="off"
           />
         </InlineGrid>
@@ -393,7 +409,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
               onChange={(value) => onChange({ minAmount: value })}
               placeholder={t("quantity.placeholderMin")}
               helpText={t("quantity.currencyHelp")}
-              error={errors?.minAmount}
+              error={errorText(errors?.minAmount)}
               autoComplete="off"
             />
             <TextField
@@ -406,7 +422,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
               onChange={(value) => onChange({ maxAmount: value })}
               placeholder={t("quantity.placeholderMax")}
               helpText={t("quantity.currencyHelp")}
-              error={errors?.maxAmount}
+              error={errorText(errors?.maxAmount)}
               autoComplete="off"
             />
           </InlineGrid>
@@ -423,7 +439,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
           maxLength={MESSAGE_MAX_LENGTH}
           showCharacterCount
           autoComplete="off"
-          error={errors?.message}
+          error={errorText(errors?.message)}
         />
       </BlockStack>
     </Box>
@@ -432,6 +448,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
 
 function ImpactSummary({ impact }: { impact: ImpactResult }) {
   const { t, number } = useI18n();
+  const sampleText = useErrorText();
   if (impact.scanned === 0) {
     return <Text as="p">{t("impact.noOrdersToTest")}</Text>;
   }
@@ -443,13 +460,13 @@ function ImpactSummary({ impact }: { impact: ImpactResult }) {
           : t("impact.blockedOf", {
               blocked: number(impact.blocked),
               total: number(impact.scanned),
-              share: formatShare(impact.blocked, impact.scanned),
+              share: formatShare(impact.blocked, impact.scanned, t("orders.lessThanOnePercent")),
             })}
       </Text>
       {impact.samples.length > 0 && (
         <List>
           {impact.samples.map((sample, index) => (
-            <List.Item key={`${index}-${sample}`}>{sample}</List.Item>
+            <List.Item key={`${index}-${sample.key}`}>{sampleText(sample)}</List.Item>
           ))}
         </List>
       )}
@@ -621,10 +638,10 @@ export default function BlockRulesPage() {
     setPendingIntent(null);
     if (data.saved) {
       if (submittedState.current) setSaved(submittedState.current);
-      shopify?.toast?.show(data.validationWarning ? "Rules saved. Checkout protection needs attention." : "Rules saved. CartGuard is protecting checkout.");
+      shopify?.toast?.show(t(data.validationWarning ? "rules.toast.savedWarning" : "rules.toast.saved"));
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [fetcher.data, fetcher.state, shopify]);
+  }, [fetcher.data, fetcher.state, shopify, t]);
 
   const discard = () => {
     setState(saved);
@@ -633,7 +650,8 @@ export default function BlockRulesPage() {
   };
 
   const serverErrors = result && !result.ok ? result.sectionErrors ?? {} : {};
-  const listError = (id: string) => errors.fields[id]?.list;
+  const errorText = useErrorText();
+  const listError = (id: string) => errorText(errors.fields[id]?.list);
   const saving = busy && pendingIntent === "save";
   const testing = busy && pendingIntent === "simulate";
 
@@ -730,7 +748,7 @@ export default function BlockRulesPage() {
               secondaryAction={{ content: t("common.cancel"), onAction: () => setResult(null) }}
               onDismiss={() => setResult(null)}
             >
-              {result.impactError ? <Text as="p">{result.impactError}</Text> : result.impact ? <ImpactSummary impact={result.impact} /> : null}
+              {result.impactError ? <Text as="p">{errorText(result.impactError)}</Text> : result.impact ? <ImpactSummary impact={result.impact} /> : null}
             </Banner>
           </Layout.Section>
         )}
@@ -745,12 +763,12 @@ export default function BlockRulesPage() {
 
         {result && !result.ok && (
           <Layout.Section>
-            <Banner tone="critical" title={result.message ?? "Something went wrong"} onDismiss={() => setResult(null)}>
+            <Banner tone="critical" title={errorText(result.message) ?? t("rules.error.generic")} onDismiss={() => setResult(null)}>
               {RULE_SECTIONS.some((section) => serverErrors[section]) && (
                 <List>
                   {RULE_SECTIONS.filter((section) => serverErrors[section]).map((section) => (
                     <List.Item key={section}>
-                      <Link onClick={() => jumpTo(section)}>{t(SECTION_TITLE_KEY[section])}</Link>: {serverErrors[section]}
+                      <Link onClick={() => jumpTo(section)}>{t(SECTION_TITLE_KEY[section])}</Link>: {errorText(serverErrors[section])}
                     </List.Item>
                   ))}
                 </List>

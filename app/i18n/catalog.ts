@@ -19,6 +19,9 @@ import it from "./messages/it.json";
 import nl from "./messages/nl.json";
 import sv from "./messages/sv.json";
 
+export type { Language } from "./locales";
+export { DEFAULT_LANGUAGE } from "./locales";
+
 /** Flat dot-separated catalog, e.g. `"rules.save.button"`. */
 export type Messages = Record<string, string>;
 

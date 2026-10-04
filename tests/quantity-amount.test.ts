@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { detailText } from "./helpers/message";
 import {
   amountBounds,
   cartTotal,
@@ -49,7 +50,7 @@ describe("maximum quantity", () => {
     for (const quantity of [6, 7, 100]) {
       const v = quantityViolations(quantity, { all: { max: 5 } });
       expect(v, String(quantity)).toHaveLength(1);
-      expect(v[0].detail).toMatch(/exceed the limit of 5/);
+      expect(detailText(v[0].detail)).toMatch(/exceed the limit of 5/);
     }
   });
 
@@ -84,7 +85,7 @@ describe("minimum quantity", () => {
     for (const quantity of [1, 2]) {
       const v = quantityViolations(quantity, { all: { min: 3 } });
       expect(v, String(quantity)).toHaveLength(1);
-      expect(v[0].detail).toMatch(/below the minimum of 3/);
+      expect(detailText(v[0].detail)).toMatch(/below the minimum of 3/);
     }
   });
 
@@ -131,7 +132,7 @@ describe("limit scoping", () => {
     };
     const v = evaluateCart(tagged, config({ all: { max: 100 }, fragile: { max: 2 } })).filter((x) => x.rule === "quantity");
     expect(v).toHaveLength(1);
-    expect(v[0].detail).toMatch(/limit of 2/);
+    expect(detailText(v[0].detail)).toMatch(/limit of 2/);
   });
 
   it("applies a product-id limit only to that product", () => {
@@ -188,7 +189,7 @@ describe("order amount bounds", () => {
     // rule fires on the computed figure.
     const v = evaluateCart(cart(2), config({ all: { minAmount: 100 } })).filter((x) => x.rule === "amount");
     expect(v).toHaveLength(1);
-    expect(v[0].detail).toMatch(/below the minimum/);
+    expect(detailText(v[0].detail)).toMatch(/below the minimum/);
   });
 
   it("scopes an amount limit to the products it actually covers", () => {
