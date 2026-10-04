@@ -151,9 +151,9 @@ function renderLinkedHelp(body: string, t: TFn): ReactNode[] {
 }
 
 export default function OverviewPage() {
-  const { t, list } = useI18n();
+  const { t, list, language } = useI18n();
   const state = useLoaderData<typeof loader>() as unknown as RulesState;
-  const summaries = useMemo(() => summarizeSections(state.config), [state.config]);
+  const summaries = useMemo(() => summarizeSections(state.config, language), [state.config, language]);
   const hero = heroFor(state, summaries, t, list);
 
   return (

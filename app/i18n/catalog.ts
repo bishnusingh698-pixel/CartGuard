@@ -63,7 +63,11 @@ export function translate(language: Language, key: MessageKey, values?: Translat
  * one form (Japanese, Chinese) and languages with more (French) are correct.
  * `forms` is indexed by plural category: one, other, and so on.
  */
-export function plural(language: Language, forms: Record<Intl.LDMLPluralRule, string>, count: number): string {
+export function plural(
+  language: Language,
+  forms: Partial<Record<Intl.LDMLPluralRule, string>>,
+  count: number,
+): string {
   const category = new Intl.PluralRules(language).select(count);
   const template = forms[category] ?? forms.other ?? forms.one;
   if (template === undefined) return formatNumber(language, count);

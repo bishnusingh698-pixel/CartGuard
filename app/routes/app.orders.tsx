@@ -178,10 +178,10 @@ function Results({ impact, isDemo, t, number }: { impact: ImpactResult; isDemo: 
 }
 
 export default function OrderCheckPage() {
-  const { t, number, dateTime } = useI18n();
+  const { t, number, dateTime, language } = useI18n();
   const { config, isDemo, needsMigration } = useLoaderData<typeof loader>() as unknown as RulesState;
   const fetcher = useFetcher<CheckResponse>();
-  const summaries = useMemo(() => summarizeSections(config), [config]);
+  const summaries = useMemo(() => summarizeSections(config, language), [config, language]);
   const hasRules = BLOCKING_SECTIONS.some((section) => summaries[section].enabled && !summaries[section].empty);
   const busy = fetcher.state !== "idle";
   const data = fetcher.data as CheckResponse | undefined;

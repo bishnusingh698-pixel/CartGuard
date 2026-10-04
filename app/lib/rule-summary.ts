@@ -16,7 +16,7 @@ import type { MessageKey } from "../i18n/catalog";
 export const RULE_SECTIONS = ["geo", "address", "quantity", "vip"] as const;
 export type RuleSection = (typeof RULE_SECTIONS)[number];
 
-export type SectionMeta = { title: string; description: string; anchor: string; flag: FeatureFlag };
+export type SectionMeta = { anchor: string; flag: FeatureFlag };
 
 /**
  * The catalog key for each section heading. Several pages render a section title
@@ -30,43 +30,36 @@ export const SECTION_TITLE_KEY = {
   vip: "section.vip.title",
 } as const satisfies Record<RuleSection, MessageKey>;
 
+/** Description keys follow the same pattern, so both can be derived. */
+export const SECTION_DESCRIPTION_KEY = Object.fromEntries(
+  RULE_SECTIONS.map((section) => [section, `section.${section}.description`]),
+) as Record<RuleSection, MessageKey>;
+
+/**
+ * Only the non-translatable parts: the anchor used for in-page links and the
+ * feature flag the section toggles. Titles and descriptions are catalog keys
+ * (SECTION_TITLE_KEY / SECTION_DESCRIPTION_KEY) so every page renders them
+ * through `t` rather than reading English literals from here.
+ */
 export const SECTION_META: Record<RuleSection, SectionMeta> = {
-  geo: {
-    title: "Countries and regions",
-    description: "Block orders shipping to countries, states, cities or postal codes you don't deliver to.",
-    anchor: "countries-and-regions",
-    flag: "enable_geo",
-  },
-  address: {
-    title: "Addresses",
-    description: "Block PO Boxes, military addresses, blocked words and specific addresses that are often used for fraud.",
-    anchor: "addresses",
-    flag: "enable_po_box",
-  },
-  quantity: {
-    title: "Order quantities",
-    description: "Limit how many units of a product one order can include, to stop resellers and bots.",
-    anchor: "order-quantities",
-    flag: "enable_quantity",
-  },
-  vip: {
-    title: "Trusted customers",
-    description: "Let customers you trust skip these rules. Blocked countries still apply to them.",
-    anchor: "trusted-customers",
-    flag: "enable_vip",
-  },
+  geo: { anchor: "countries-and-regions", flag: "enable_geo" },
+  address: { anchor: "addresses", flag: "enable_po_box" },
+  quantity: { anchor: "order-quantities", flag: "enable_quantity" },
+  vip: { anchor: "trusted-customers", flag: "enable_vip" },
 };
 
-export type SectionSummary = { enabled: boolean; empty: boolean; details: string[] };
+/**
+ * A summary detail as structured data rather than a finished sentence, so the
+ * component that renders it can translate it. `count` drives plural selection.
+ */
+export type SummaryDetail = { key: MessageKey; count?: number; values?: string[]; more?: number };
+
+export type SectionSummary = { enabled: boolean; empty: boolean; details: SummaryDetail[] };
 
 const numberFormat = new Intl.NumberFormat("en-US");
 
 export function formatNumber(value: number): string {
   return numberFormat.format(value);
-}
-
-export function pluralize(count: number, one: string, many = `${one}s`): string {
-  return `${formatNumber(count)} ${count === 1 ? one : many}`;
 }
 
 /** 3 of 8 -> "38%"; 1 of 300 -> "less than 1%". */
@@ -77,9 +70,12 @@ export function formatShare(part: number, total: number, lessThanOnePercent = "l
   return `${Math.round(share)}%`;
 }
 
-function preview(items: string[], max = 3): string {
-  if (items.length <= max) return items.join(", ");
-  return `${items.slice(0, max).join(", ")} and ${formatNumber(items.length - max)} more`;
+/**
+ * Formats a list of names using the locale's own list rules. The caller
+ * translates the "and N more" tail, so only the names come from here.
+ */
+function joinNames(items: string[], locale: string): string {
+  return new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(items);
 }
 
 /** Merchant-facing name for a quantity limit key. */
@@ -91,10 +87,19 @@ export function limitTargetLabel(key: string): string {
   return `Products tagged "${trimmed}"`;
 }
 
-const BUILT_IN_LABELS: Record<string, string> = {
-  po_box: "PO Boxes",
-  military: "Military addresses",
+const BUILT_IN_LABELS: Record<string, MessageKey> = {
+  po_box: "summary.address.poBox",
+  military: "summary.address.military",
 };
+
+/** Catalog key for a quantity limit's target, for use in a summary line. */
+function limitTargetMessage(key: string): MessageKey {
+  const trimmed = key.trim();
+  if (trimmed === "*" || trimmed.toLowerCase() === "all") return "summary.target.all";
+  if (trimmed.startsWith(PRODUCT_GID_PREFIX)) return "summary.target.productId";
+  if (/^\d+$/.test(trimmed)) return "summary.target.productId";
+  return "summary.target.tag";
+}
 
 const wholeUnits = (value: number | undefined): number | null =>
   value === undefined || !Number.isFinite(value) ? null : value;
@@ -116,14 +121,21 @@ export function limitRange(limit: QuantityLimit): string | null {
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-export function summarizeSections(config: RuleConfig): Record<RuleSection, SectionSummary> {
+export function summarizeSections(config: RuleConfig, locale = "en"): Record<RuleSection, SectionSummary> {
   const { settings, geoBlocklist: geo, regexRules, quantityLimits, vipAllowlist } = config;
 
-  const geoDetails: string[] = [];
-  if (geo.countries.length > 0) geoDetails.push(preview(geo.countries.map(countryName)));
-  if (geo.states.length > 0) geoDetails.push(pluralize(geo.states.length, "state or province", "states or provinces"));
-  if (geo.cities.length > 0) geoDetails.push(pluralize(geo.cities.length, "city", "cities"));
-  if (geo.zips.length > 0) geoDetails.push(pluralize(geo.zips.length, "postal code"));
+  const geoDetails: SummaryDetail[] = [];
+  if (geo.countries.length > 0) {
+    const names = geo.countries.map((code) => countryName(code, locale));
+    geoDetails.push({
+      key: "summary.geo.countries",
+      values: [joinNames(names.slice(0, 3), locale)],
+      more: names.length > 3 ? names.length - 3 : undefined,
+    });
+  }
+  if (geo.states.length > 0) geoDetails.push({ key: "summary.geo.states", count: geo.states.length });
+  if (geo.cities.length > 0) geoDetails.push({ key: "summary.geo.cities", count: geo.cities.length });
+  if (geo.zips.length > 0) geoDetails.push({ key: "summary.geo.zips", count: geo.zips.length });
 
   const builtIns = new Set<string>();
   let keywords = 0;
@@ -133,24 +145,24 @@ export function summarizeSections(config: RuleConfig): Record<RuleSection, Secti
     else if (rule.preset === "keywords") keywords += rule.keywords?.length || 1;
     else specific += 1;
   }
-  const addressDetails = Object.keys(BUILT_IN_LABELS)
+  const addressDetails: SummaryDetail[] = Object.keys(BUILT_IN_LABELS)
     .filter((preset) => builtIns.has(preset))
-    .map((preset) => BUILT_IN_LABELS[preset]);
-  if (keywords > 0) addressDetails.push(pluralize(keywords, "blocked word"));
-  if (specific > 0) addressDetails.push(pluralize(specific, "specific address", "specific addresses"));
+    .map((preset) => ({ key: BUILT_IN_LABELS[preset] }) as SummaryDetail);
+  if (keywords > 0) addressDetails.push({ key: "summary.address.keywords", count: keywords });
+  if (specific > 0) addressDetails.push({ key: "summary.address.specific", count: specific });
 
   // Skip limits still being typed (no valid bound yet).
   const limits = Object.entries(quantityLimits).filter(([, limit]) => limitRange(limit) !== null);
-  const quantityDetails = limits.slice(0, 2).map(([key, limit]) => `${limitTargetLabel(key)}: ${limitRange(limit)}`);
-  if (limits.length > 2) quantityDetails.push(`${formatNumber(limits.length - 2)} more`);
+  const quantityDetails: SummaryDetail[] = limits.slice(0, 2).map(([key]) => ({ key: limitTargetMessage(key) }));
+  if (limits.length > 2) quantityDetails.push({ key: "summary.more", count: limits.length - 2 });
 
   const emails = vipAllowlist.filter((entry) => entry.includes("@")).length;
   const addresses = vipAllowlist.length - emails;
-  const vipDetails: string[] = [];
-  if (emails > 0) vipDetails.push(pluralize(emails, "customer email"));
-  if (addresses > 0) vipDetails.push(pluralize(addresses, "street address", "street addresses"));
+  const vipDetails: SummaryDetail[] = [];
+  if (emails > 0) vipDetails.push({ key: "summary.vip.emails", count: emails });
+  if (addresses > 0) vipDetails.push({ key: "summary.vip.addresses", count: addresses });
 
-  const summary = (enabled: boolean, details: string[]): SectionSummary => ({
+  const summary = (enabled: boolean, details: SummaryDetail[]): SectionSummary => ({
     enabled,
     empty: details.length === 0,
     details,

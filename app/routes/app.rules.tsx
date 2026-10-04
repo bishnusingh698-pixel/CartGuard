@@ -77,10 +77,10 @@ import { useI18n } from "../i18n/context";
 import {
   RULE_SECTIONS,
   SECTION_META,
+  SECTION_DESCRIPTION_KEY,
   SECTION_TITLE_KEY,
   type RuleSection,
   type SectionSummary,
-  formatNumber,
   formatShare,
   summarizeSections,
 } from "../lib/rule-summary";
@@ -184,7 +184,7 @@ function RuleSectionCard({ section, summary, errorCount, serverError, onToggle, 
   const showBody = summary.enabled || errorCount > 0 || Boolean(serverError);
   const toggleLabel = summary.enabled ? t("section.turnOff") : t("section.turnOn");
   return (
-    <Layout.AnnotatedSection id={meta.anchor} title={meta.title} description={meta.description}>
+    <Layout.AnnotatedSection id={meta.anchor} title={t(SECTION_TITLE_KEY[section])} description={t(SECTION_DESCRIPTION_KEY[section])}>
       <Card>
         <BlockStack gap="400">
           <InlineStack align="space-between" blockAlign="center" gap="300">
@@ -325,7 +325,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
   const { t, number } = useI18n();
   const everyProduct = row.target === "all";
   const max = Number(row.max);
-  const exampleMax = Number.isInteger(max) && max > 0 ? formatNumber(max) : "10";
+  const exampleMax = Number.isInteger(max) && max > 0 ? number(max) : "10";
   return (
     <Box padding="400" borderWidth="025" borderColor="border" borderRadius="200">
       <BlockStack gap="300">
@@ -533,7 +533,7 @@ function jumpTo(section: RuleSection) {
 /* Page */
 
 export default function BlockRulesPage() {
-  const { t, number } = useI18n();
+  const { t, number, language } = useI18n();
   const { config, validation, needsMigration } = useLoaderData<typeof loader>() as unknown as RulesState;
   const fetcher = useFetcher<ActionResponse>();
   const shopify = useAppBridge();
@@ -552,8 +552,11 @@ export default function BlockRulesPage() {
   const savedFingerprint = useMemo(() => JSON.stringify(configFromEditor(saved)), [saved]);
   const dirty = JSON.stringify(draft) !== savedFingerprint;
   const errors = useMemo(() => validateEditor(state), [state]);
-  const summaries = useMemo(() => summarizeSections(draft), [draft]);
-  const countryOptions = useMemo<Option[]>(() => [{ label: "Any country", value: "" }, ...getCountryOptions()], []);
+  const summaries = useMemo(() => summarizeSections(draft, language), [draft, language]);
+  const countryOptions = useMemo<Option[]>(
+    () => [{ label: t("fields.countries.anyCountry"), value: "" }, ...getCountryOptions(language)],
+    [language, t],
+  );
   const busy = fetcher.state !== "idle";
   const needsActivation = validation.state !== "active" || needsMigration;
   const canSave = !busy && (dirty || needsActivation);
@@ -747,7 +750,7 @@ export default function BlockRulesPage() {
                 <List>
                   {RULE_SECTIONS.filter((section) => serverErrors[section]).map((section) => (
                     <List.Item key={section}>
-                      <Link onClick={() => jumpTo(section)}>{SECTION_META[section].title}</Link>: {serverErrors[section]}
+                      <Link onClick={() => jumpTo(section)}>{t(SECTION_TITLE_KEY[section])}</Link>: {serverErrors[section]}
                     </List.Item>
                   ))}
                 </List>

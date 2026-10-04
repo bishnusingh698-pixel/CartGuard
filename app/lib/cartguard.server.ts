@@ -129,7 +129,9 @@ export type StoredConfiguration = {
 function nodesToRaw(connection: MetafieldNodes | undefined): RawConfig | null {
   const raw: RawConfig = {};
   let found = false;
-  for (const node of connection?.nodes ?? []) {
+  // Same Array.isArray guard as the Impact Checker: this runs on every admin
+  // page load, so a non-array `nodes` must not throw out of the loader.
+  for (const node of (Array.isArray(connection?.nodes) ? connection.nodes : [])) {
     const key = node?.key;
     if (key && (CONFIG_KEYS as readonly string[]).includes(key) && typeof node?.value === "string") {
       raw[key as ConfigKey] = node.value;
@@ -678,7 +680,11 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
       { first: IMPACT_PAGE_SIZE, after },
     );
     const page: OrdersQueryResult["orders"] = queryResult.data.orders;
-    const nodes = page?.nodes ?? [];
+    // `nodes` is typed as an array but arrives as whatever the API sent. Spreading
+    // a non-iterable threw "Spread syntax requires ...iterable", which surfaced
+    // to the merchant as a failed test with no usable detail. orderToCart
+    // already guards lineItems.nodes this way; the top-level page needs it too.
+    const nodes = Array.isArray(page?.nodes) ? page.nodes : [];
     orders.push(...nodes);
     const cursor = page?.pageInfo?.endCursor ?? null;
     if (!page?.pageInfo?.hasNextPage || !cursor) break;

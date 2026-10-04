@@ -26,6 +26,9 @@ import {
   plural,
   translate,
 } from "../app/i18n/catalog";
+import { COUNTRY_CODES, countryName, getCountryOptions } from "../app/lib/regions";
+import { summarizeSections } from "../app/lib/rule-summary";
+import type { RuleConfig } from "../extensions/cartguard-validator/src/rules";
 
 /** Placeholders a translated string must keep, e.g. `{count}`. */
 const placeholders = (template: string) => [...String(template).matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
@@ -190,5 +193,95 @@ describe("plurals and formatting", () => {
   it("joins lists the way each language expects", () => {
     expect(formatList("en", ["a", "b", "c"])).toBe("a, b, and c");
     expect(formatList("ja", ["a", "b"])).toContain("a");
+  });
+});
+
+describe("localized rule summaries", () => {
+  const config = (overrides: Partial<RuleConfig> = {}): RuleConfig => ({
+    settings: {
+      enable_geo: true,
+      enable_po_box: true,
+      enable_quantity: true,
+      enable_vip: true,
+    },
+    geoBlocklist: { countries: ["DE", "FR"], states: [], cities: [], zips: [] },
+    regexRules: [],
+    quantityLimits: {},
+    vipAllowlist: [],
+    ...overrides,
+  });
+
+  it("emits translatable message keys rather than English sentences", () => {
+    const summaries = summarizeSections(config());
+    expect(summaries.geo.details[0]).toMatchObject({ key: "summary.geo.countries" });
+    // Every emitted key must resolve in every catalog, or the UI shows a raw key.
+    for (const language of SUPPORTED_LANGUAGES) {
+      for (const section of Object.values(summaries)) {
+        for (const detail of section.details) {
+          expect(catalogFor(language)[detail.key]).toBeTruthy();
+        }
+      }
+    }
+  });
+
+  it("names countries in the requested language", () => {
+    const en = summarizeSections(config(), "en");
+    const de = summarizeSections(config(), "de");
+    expect(en.geo.details[0].values?.[0]).toContain("Germany");
+    expect(de.geo.details[0].values?.[0]).toContain("Deutschland");
+    expect(de.geo.details[0].values?.[0]).not.toContain("Germany");
+  });
+
+  it("keeps a count on plural details so the reader's language can pluralise", () => {
+    const summaries = summarizeSections(
+      config({ geoBlocklist: { countries: [], states: ["US-CA", "US-NY"], cities: [], zips: ["90210"] } }),
+    );
+    const states = summaries.geo.details.find((detail) => detail.key === "summary.geo.states");
+    expect(states?.count).toBe(2);
+    expect(translate("en", "summary.geo.states.other", { count: "2" })).toBe("2 states or provinces");
+  });
+
+  it("caps long country lists and reports the remainder separately", () => {
+    const codes = ["DE", "FR", "IT", "ES", "PT"];
+    const detail = summarizeSections(config({ geoBlocklist: { countries: codes, states: [], cities: [], zips: [] } })).geo
+      .details[0];
+    expect(detail.more).toBe(2);
+  });
+
+  it("leaves sections with nothing configured empty", () => {
+    const summaries = summarizeSections(config({ geoBlocklist: { countries: [], states: [], cities: [], zips: [] } }));
+    expect(summaries.geo.empty).toBe(true);
+    expect(summaries.vip.empty).toBe(true);
+  });
+});
+
+describe("country names", () => {
+  it("localises country names", () => {
+    expect(countryName("DE", "en")).toBe("Germany");
+    expect(countryName("DE", "de")).toBe("Deutschland");
+    expect(countryName("DE", "fr")).toContain("Allemagne");
+  });
+
+  it("defaults to English for server-side callers", () => {
+    expect(countryName("JP")).toBe("Japan");
+  });
+
+  it("returns non-country input untouched", () => {
+    expect(countryName("not-a-country")).toBe("not-a-country");
+  });
+
+  it("lists and sorts every country in the requested language", () => {
+    const en = getCountryOptions("en");
+    const de = getCountryOptions("de");
+    expect(en).toHaveLength(COUNTRY_CODES.length);
+    expect(en.find((option) => option.value === "DE")?.label).toBe("Germany");
+    expect(de.find((option) => option.value === "DE")?.label).toBe("Deutschland");
+    // Sorted by localised name, so the list reads in order in every language.
+    const labels = de.map((option) => option.label);
+    expect(labels).toEqual([...labels].sort((a, b) => a.localeCompare(b, "de")));
+  });
+
+  it("returns the cached list for the same locale", () => {
+    expect(getCountryOptions("ja")).toBe(getCountryOptions("ja"));
   });
 });

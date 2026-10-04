@@ -20,45 +20,59 @@ const COUNTRY_SET = new Set(COUNTRY_CODES);
 
 export type Option = { label: string; value: string };
 
-let regionNames: Intl.DisplayNames | null | undefined;
+const regionNames = new Map<string, Intl.DisplayNames | null>();
 
-function displayNames(): Intl.DisplayNames | null {
-  if (regionNames === undefined) {
-    try {
-      regionNames = new Intl.DisplayNames(["en"], { type: "region" });
-    } catch {
-      regionNames = null;
-    }
+/**
+ * Region names in `locale`, cached because building an Intl.DisplayNames is
+ * expensive and the editor asks for every country at once.
+ */
+function displayNames(locale: string): Intl.DisplayNames | null {
+  const cached = regionNames.get(locale);
+  if (cached !== undefined) return cached;
+  let built: Intl.DisplayNames | null;
+  try {
+    built = new Intl.DisplayNames([locale], { type: "region" });
+  } catch {
+    built = null;
   }
-  return regionNames;
+  regionNames.set(locale, built);
+  return built;
 }
 
 export function isCountryCode(value: string): boolean {
   return COUNTRY_SET.has(value.trim().toUpperCase());
 }
 
-/** "CR" -> "Costa Rica". Values that aren't country codes are returned as-is. */
-export function countryName(code: string): string {
+/**
+ * "CR" -> "Costa Rica". Values that aren't country codes are returned as-is.
+ *
+ * `locale` defaults to English so server-side callers keep working; the editor
+ * passes the merchant's language so the dropdown reads in their language.
+ * XK (Kosovo) is hardcoded because Intl does not carry it, and it is spelled the
+ * same in every language CartGuard ships.
+ */
+export function countryName(code: string, locale = "en"): string {
   const upper = code.trim().toUpperCase();
   if (!COUNTRY_SET.has(upper)) return code.trim();
   if (upper === "XK") return "Kosovo";
   try {
-    return displayNames()?.of(upper) ?? upper;
+    return displayNames(locale)?.of(upper) ?? upper;
   } catch {
     return upper;
   }
 }
 
-let countryOptions: Option[] | null = null;
+const countryOptions = new Map<string, Option[]>();
 
-/** Every country, sorted by name. */
-export function getCountryOptions(): Option[] {
-  if (!countryOptions) {
-    countryOptions = COUNTRY_CODES.map((code) => ({ value: code, label: countryName(code) })).sort((a, b) =>
-      a.label.localeCompare(b.label, "en"),
-    );
-  }
-  return countryOptions;
+/** Every country, labelled and sorted in `locale`. Cached per locale. */
+export function getCountryOptions(locale = "en"): Option[] {
+  const cached = countryOptions.get(locale);
+  if (cached) return cached;
+  const options = COUNTRY_CODES.map((code) => ({ value: code, label: countryName(code, locale) })).sort((a, b) =>
+    a.label.localeCompare(b.label, locale),
+  );
+  countryOptions.set(locale, options);
+  return options;
 }
 
 /** Lowercase, accent-free, punctuation-free form used for searching. */

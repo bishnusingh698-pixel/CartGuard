@@ -208,10 +208,10 @@ type CountryPickerProps = {
 };
 
 export function CountryPicker({ label, helpText, values, onChange, error }: CountryPickerProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [query, setQuery] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
-  const allOptions = useMemo(() => getCountryOptions(), []);
+  const allOptions = useMemo(() => getCountryOptions(language), [language]);
   const options = useMemo(() => {
     const key = searchKey(query);
     if (!key) return allOptions;
@@ -249,7 +249,7 @@ export function CountryPicker({ label, helpText, values, onChange, error }: Coun
         label={t("fields.countries.listName")}
         values={values}
         onChange={onChange}
-        format={countryName}
+        format={(code) => countryName(code, language)}
         emptyText={t("fields.countries.empty")}
       />
       <InlineStack>
@@ -283,7 +283,7 @@ type RegionPickerProps = {
 };
 
 export function RegionPicker({ label, values, onChange, error }: RegionPickerProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [country, setCountry] = useState<string>(REGION_COUNTRIES[0]);
   const [region, setRegion] = useState("");
   const [otherCountry, setOtherCountry] = useState("");
@@ -292,14 +292,14 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
 
   const countryChoices = useMemo(
     () => [
-      ...REGION_COUNTRIES.map((value) => ({ label: countryName(value), value })),
+      ...REGION_COUNTRIES.map((value) => ({ label: countryName(value, language), value })),
       { label: t("fields.states.otherCountry"), value: OTHER_COUNTRY },
     ],
-    [t],
+    [t, language],
   );
   const otherCountries = useMemo(
-    () => getCountryOptions().filter((option) => !(REGION_COUNTRIES as readonly string[]).includes(option.value)),
-    [],
+    () => getCountryOptions(language).filter((option) => !(REGION_COUNTRIES as readonly string[]).includes(option.value)),
+    [language],
   );
   const isOther = country === OTHER_COUNTRY;
 

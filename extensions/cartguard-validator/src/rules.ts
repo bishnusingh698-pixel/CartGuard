@@ -158,17 +158,55 @@ export const DEFAULT_ADDRESS_MESSAGE =
 export const DEFAULT_GEO_MESSAGE =
   "We can't deliver to this area. Please choose a different delivery address or contact us for help.";
 
+/**
+ * Separators allowed inside a written-out "PO Box". Hyphens matter: "PO-Box" and
+ * "P O. B O X" are ordinary ways to defeat a naive `po box` literal, so each
+ * optional separator position also accepts a dash and collapsed whitespace.
+ */
+const PO_BOX_SEP = "[\\s-]*";
+
 export const ADDRESS_PRESETS = {
   po_box: {
     label: "PO Box rule",
-    pattern:
-      "\\bp\\.?\\s*[o0]\\.?\\s*b[o0]x\\b|\\bp\\.?\\s*o\\.?\\s*b\\.?\\s*\\d|\\bpost\\s+office\\s+box\\b|\\bpostal\\s+box\\b|\\bapartado\\s+postal\\b|\\bcasilla\\s+postal\\b|\\bpostfach\\b",
+    pattern: [
+      // PO Box / P.O. Box / P.O.B. / POB / POBox, including hyphens and
+      // letter-spacing tricks.
+      `\\bp\\.?${PO_BOX_SEP}[o0]\\.?${PO_BOX_SEP}b${PO_BOX_SEP}[o0]${PO_BOX_SEP}x\\b`,
+      // "P.O.B. 4": the abbreviation with the number but no "x".
+      `\\bp\\.?${PO_BOX_SEP}o\\.?${PO_BOX_SEP}b\\.?${PO_BOX_SEP}\\d`,
+      "\\bpost\\s+office\\s+box\\b",
+      "\\bpostal\\s+box\\b",
+      // "Apartado" is the PO Box form in much of Latin America, but it also names
+      // streets ("Apartado Court"), so require the number or the "Postal" that
+      // make it an address rather than a place.
+      "\\bapartado(?:\\s+postal)?\\s*\\d|\\bapartado\\s+postal\\b",
+      "\\bcasilla\\s+postal\\b",
+      "\\bcaixa\\s+postal\\b",
+      // French and other European spellings.
+      "\\bcasier\\s+postal\\b",
+      "\\bpostfach\\b",
+      "\\bpostbus\\b",
+      // Australia and the UK: private mail addressed to a bag or counter.
+      "\\b(?:locked|private)\\s+bag\\b",
+      "\\bposte\\s+restante\\b",
+      // Parcel lockers and private mail boxes, which have no street delivery.
+      "\\bpackstation\\b",
+      "\\bpmb\\.\\s*\\d",
+    ].join("|"),
     message: "We can't ship to PO Boxes. Please enter a street address.",
     country: undefined as string | undefined,
   },
   military: {
     label: "military address rule",
-    pattern: "\\b(apo|fpo|dpo)\\b",
+    // "A.P.O." is written with periods in the wild, so each letter takes an
+    // optional dot. The trailing \b keeps "Apopka" and "Apollo" out.
+    //
+    // The abbreviation must be followed by military context: a ZIP, a two-letter
+    // region code (AE/AA/AP), "Box", or the end of the field. Without this,
+    // any street named after the letters is blocked and real customers are
+    // turned away, which is the main complaint about these filters.
+    pattern:
+      "\\b(?:a\\.?\\s*p\\.?\\s*o\\.?|f\\.?\\s*p\\.?\\s*o\\.?|d\\.?\\s*p\\.?\\s*o\\.?)\\.?\\s*(?:\\d|[a-z]{2}\\b|box\\b|$)",
     message: "We can't deliver to military addresses (APO/FPO/DPO).",
     country: "US" as string | undefined,
   },
@@ -359,6 +397,10 @@ export function parseRegexRules(raw: unknown): RegexRule[] {
     if (!isRecord(entry)) continue;
     const pattern = typeof entry.pattern === "string" ? entry.pattern.trim() : "";
     if (!pattern) continue;
+    // Admin validation rejects risky patterns, but the metafield is also
+    // readable and writable outside the app. Re-check here so a hand-edited
+    // value cannot stall the Function's instruction budget.
+    if (pattern.length > MAX_PATTERN_LENGTH || isRiskyPattern(pattern)) continue;
     const rule: RegexRule = { pattern };
     if (typeof entry.message === "string" && entry.message.trim()) rule.message = entry.message.trim();
     if (typeof entry.country === "string" && entry.country.trim()) rule.country = entry.country.trim();
@@ -641,7 +683,10 @@ export function cartTotal(cart: CartInput): number | null {
   let sum = 0;
   let seen = false;
   for (const line of cart.lines) {
-    const price = Number(line.unitPrice);
+    // A missing price must be skipped, not read as zero: Number(null) and
+    // Number("") are both 0, which would report a total of $0 and let a
+    // minAmount rule block a real order on a price nobody supplied.
+    const price = typeof line.unitPrice === "number" && Number.isFinite(line.unitPrice) ? line.unitPrice : Number.NaN;
     if (!Number.isFinite(price)) continue;
     const quantity = Number.isFinite(line.quantity) && line.quantity > 0 ? line.quantity : 0;
     sum += price * quantity;
