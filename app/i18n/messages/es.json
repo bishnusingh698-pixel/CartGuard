@@ -527,5 +527,12 @@
   "impact.orderSample.noLabel": "Pedido: {reasons}",
   "impact.noAddress": "Sin dirección de envío",
   "rules.toast.saved": "Reglas guardadas. CartGuard protege el pago.",
-  "rules.toast.savedWarning": "Reglas guardadas. La protección del pago requiere atención."
+  "rules.toast.savedWarning": "Reglas guardadas. La protección del pago requiere atención.",
+  "rules.error.saveFailedWithDetail": "No se pudieron guardar las reglas. {detail}",
+  "server.quantity.amountRange": "{label}: introduce un importe de hasta {max} o deja el campo vacío.",
+  "server.quantity.amountOnlyAll": "{label}: los importes del pedido solo se aplican al límite «Todos los productos».",
+  "server.quantity.minAboveMax": "{label}: el mínimo no puede ser mayor que el máximo.",
+  "server.quantity.minAmountAboveMax": "{label}: el pedido más pequeño no puede ser mayor que el más grande.",
+  "rules.error.impactFailed": "No se pudo estimar el impacto. {detail}",
+  "address.keywords": "Palabras bloqueadas"
 }

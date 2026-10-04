@@ -527,5 +527,12 @@
   "impact.orderSample.noLabel": "Pedido: {reasons}",
   "impact.noAddress": "Sem endereço de entrega",
   "rules.toast.saved": "Regras salvas. O CartGuard está protegendo o checkout.",
-  "rules.toast.savedWarning": "Regras salvas. A proteção do checkout precisa de atenção."
+  "rules.toast.savedWarning": "Regras salvas. A proteção do checkout precisa de atenção.",
+  "rules.error.saveFailedWithDetail": "Não foi possível salvar as regras. {detail}",
+  "server.quantity.amountRange": "{label}: informe um valor de até {max} ou deixe em branco.",
+  "server.quantity.amountOnlyAll": "{label}: os valores do pedido valem apenas para o limite “Todos os produtos”.",
+  "server.quantity.minAboveMax": "{label}: o mínimo não pode ser maior que o máximo.",
+  "server.quantity.minAmountAboveMax": "{label}: o menor pedido não pode ser maior que o maior.",
+  "rules.error.impactFailed": "Não foi possível estimar o impacto. {detail}",
+  "address.keywords": "Palavras bloqueadas"
 }

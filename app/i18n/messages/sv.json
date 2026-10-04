@@ -527,5 +527,12 @@
   "impact.orderSample.noLabel": "Beställning: {reasons}",
   "impact.noAddress": "Ingen leveransadress",
   "rules.toast.saved": "Regler sparade. CartGuard skyddar kassan.",
-  "rules.toast.savedWarning": "Regler sparade. Kassa-skyddet behöver uppmärksamhet."
+  "rules.toast.savedWarning": "Regler sparade. Kassa-skyddet behöver uppmärksamhet.",
+  "rules.error.saveFailedWithDetail": "Reglerna kunde inte sparas. {detail}",
+  "server.quantity.amountRange": "{label}: ange ett belopp upp till {max} eller lämna tomt.",
+  "server.quantity.amountOnlyAll": "{label}: orderbelopp gäller endast för gränsen ”Alla produkter”.",
+  "server.quantity.minAboveMax": "{label}: minimivärdet får inte vara större än maxvärdet.",
+  "server.quantity.minAmountAboveMax": "{label}: den minsta ordern får inte vara större än den största.",
+  "rules.error.impactFailed": "Det gick inte att uppskatta effekten. {detail}",
+  "address.keywords": "Blockerade ord"
 }

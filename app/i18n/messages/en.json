@@ -527,5 +527,12 @@
   "impact.orderSample.noLabel": "Order: {reasons}",
   "impact.noAddress": "No shipping address",
   "rules.toast.saved": "Rules saved. CartGuard is protecting checkout.",
-  "rules.toast.savedWarning": "Rules saved. Checkout protection needs attention."
+  "rules.toast.savedWarning": "Rules saved. Checkout protection needs attention.",
+  "rules.error.saveFailedWithDetail": "Rules couldn't be saved. {detail}",
+  "server.quantity.amountRange": "{label}: enter an amount up to {max}, or leave it blank.",
+  "server.quantity.amountOnlyAll": "{label}: order amounts apply only to the “Every product” limit.",
+  "server.quantity.minAboveMax": "{label}: the minimum can't be more than the maximum.",
+  "server.quantity.minAmountAboveMax": "{label}: the smallest order can't be more than the largest one.",
+  "rules.error.impactFailed": "Couldn't estimate the impact. {detail}",
+  "address.keywords": "Blocked words"
 }

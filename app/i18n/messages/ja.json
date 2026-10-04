@@ -527,5 +527,12 @@
   "impact.orderSample.noLabel": "注文：{reasons}",
   "impact.noAddress": "配送先住所がありません",
   "rules.toast.saved": "ルールを保存しました。CartGuard がチェックアウトを保護しています。",
-  "rules.toast.savedWarning": "ルールを保存しました。チェックアウト保護の確認が必要です。"
+  "rules.toast.savedWarning": "ルールを保存しました。チェックアウト保護の確認が必要です。",
+  "rules.error.saveFailedWithDetail": "ルールを保存できませんでした。{detail}",
+  "server.quantity.amountRange": "{label}: {max} までの金額を入力するか、空欄のままにしてください。",
+  "server.quantity.amountOnlyAll": "{label}: 注文金額は「すべての商品」の上限にのみ適用されます。",
+  "server.quantity.minAboveMax": "{label}: 最小値を最大値より大きくすることはできません。",
+  "server.quantity.minAmountAboveMax": "{label}: 最小注文额を最大注文额より大きくすることはできません。",
+  "rules.error.impactFailed": "影響度を推定できませんでした。{detail}",
+  "address.keywords": "ブロック対象語"
 }

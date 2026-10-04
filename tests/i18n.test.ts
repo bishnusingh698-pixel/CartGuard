@@ -5,6 +5,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { globSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import en from "../app/i18n/messages/en.json";
 
 import { checkLocales } from "../scripts/check-locales.mjs";
@@ -44,6 +46,7 @@ const flatten = (node: unknown, prefix = ""): Map<string, string> => {
 };
 
 const english = flatten(en);
+const sourceRoot = resolve(import.meta.dirname, "..");
 
 describe("locale catalogs", () => {
   it("every shipped language has a complete catalog", () => {
@@ -283,5 +286,27 @@ describe("country names", () => {
 
   it("returns the cached list for the same locale", () => {
     expect(getCountryOptions("ja")).toBe(getCountryOptions("ja"));
+  });
+});
+
+describe("catalog keys used in source", () => {
+  // Catalog parity only compares languages against each other, so a key that
+  // is missing everywhere stays invisible. These checks read the source tree.
+  const sourceFiles = globSync("app/**/*.{ts,tsx}", { cwd: sourceRoot })
+    .concat(globSync("extensions/**/*.{ts,tsx}", { cwd: sourceRoot }))
+    .filter((path) => !path.includes("node_modules") && !path.endsWith(".d.ts"));
+  const source = sourceFiles.map((path) => readFileSync(resolve(sourceRoot, path), "utf8")).join("\n");
+
+  it("declares every dotted key literal used in source", () => {
+    // Only look at message positions: `t("…")`, `msg("…")` and `key: "…"`.
+    // Elsewhere a dotted string is just an id (LIST_FIELD_IDS, doc comments).
+    const patterns = [/\bt\(\s*"(?!use[A-Z])((?:[a-zA-Z][\w]*\.)+[a-zA-Z][\w]*)"/g, /\bmsg\(\s*"((?:[a-zA-Z][\w]*\.)+[a-zA-Z][\w]*)"/g, /\bkey:\s*"((?:[a-zA-Z][\w]*\.)+[a-zA-Z][\w]*)"/g];
+    const used = new Set<string>();
+    for (const pattern of patterns) for (const match of source.matchAll(pattern)) used.add(match[1]);
+    expect([...used].filter((key) => !english.has(key)).sort()).toEqual([]);
+  });
+
+  it("keeps catalog key shape consistent", () => {
+    for (const key of english.keys()) expect(key).toMatch(/^[a-zA-Z][\w]*(\.[\w]+)+$/);
   });
 });

@@ -527,5 +527,12 @@
   "impact.orderSample.noLabel": "订单：{reasons}",
   "impact.noAddress": "无配送地址",
   "rules.toast.saved": "规则已保存。CartGuard 正在保护结账。",
-  "rules.toast.savedWarning": "规则已保存。结账保护需要处理。"
+  "rules.toast.savedWarning": "规则已保存。结账保护需要处理。",
+  "rules.error.saveFailedWithDetail": "无法保存规则。{detail}",
+  "server.quantity.amountRange": "{label}：请输入不超过 {max} 的金额，或留空。",
+  "server.quantity.amountOnlyAll": "{label}：订单金额仅适用于“所有商品”的限制。",
+  "server.quantity.minAboveMax": "{label}：最小值不能大于最大值。",
+  "server.quantity.minAmountAboveMax": "{label}：最小订单金额不能大于最大订单金额。",
+  "rules.error.impactFailed": "无法预估影响。{detail}",
+  "address.keywords": "屏蔽词"
 }

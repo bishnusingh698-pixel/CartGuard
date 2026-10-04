@@ -527,5 +527,12 @@
   "impact.orderSample.noLabel": "Bestelling: {reasons}",
   "impact.noAddress": "Geen verzendadres",
   "rules.toast.saved": "Regels opgeslagen. CartGuard beschermt de checkout.",
-  "rules.toast.savedWarning": "Regels opgeslagen. De checkoutbeveiliging vraagt aandacht."
+  "rules.toast.savedWarning": "Regels opgeslagen. De checkoutbeveiliging vraagt aandacht.",
+  "rules.error.saveFailedWithDetail": "Regels konden niet worden opgeslagen. {detail}",
+  "server.quantity.amountRange": "{label}: voer een bedrag in tot {max} of laat het leeg.",
+  "server.quantity.amountOnlyAll": "{label}: bestelbedragen gelden alleen voor het limiet “Alle producten”.",
+  "server.quantity.minAboveMax": "{label}: het minimum mag niet groter zijn dan het maximum.",
+  "server.quantity.minAmountAboveMax": "{label}: de kleinste bestelling mag niet groter zijn dan de grootste.",
+  "rules.error.impactFailed": "De impact kon niet worden ingeschat. {detail}",
+  "address.keywords": "Geblokkeerde woorden"
 }
