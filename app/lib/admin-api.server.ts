@@ -65,6 +65,12 @@ export function friendlyErrorMessage(error: unknown): string {
   if (/throttl|rate limit|\b429\b/.test(detail)) {
     return "Shopify is handling a lot of requests from your store right now. Wait a minute and try again.";
   }
+  if (/not approved to access|protected customer data/.test(detail)) {
+    return "CartGuard hasn't been approved by Shopify to read order details yet, so it can't test your rules on past orders. Your rules still work at checkout.";
+  }
+  if (/max cost limit|exceeds the single query/.test(detail)) {
+    return "Your recent orders were too large to check in one go. Try again in a moment. If it keeps happening, contact support@cartguard.io.";
+  }
   if (/access denied|access scope|\b401\b|\b403\b/.test(detail)) {
     return "CartGuard doesn't have the permission it needs. Open CartGuard from your Shopify admin, approve any requested permissions, then try again.";
   }

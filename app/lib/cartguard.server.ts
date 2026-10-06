@@ -532,11 +532,18 @@ export async function saveConfiguration(admin: AdminApi, config: RuleConfig): Pr
 
 const IMPACT_PAGE_SIZE = 10;
 const IMPACT_MAX_ORDERS = 100;
-const IMPACT_MIN_BUDGET = 800;
+const IMPACT_MIN_BUDGET = 900;
+/** Longest the checker waits in total for the rate limit to refill. */
+const IMPACT_MAX_WAIT_MS = 8_000;
 const IMPACT_SAMPLE_LIMIT = 5;
 
-// 10 orders x (order + address + 40 line items x (item + product)) is about
-// 820 points, under the 1,000-point single-query limit.
+// Shopify rejects any query whose requested cost is over 1,000 points. Cost
+// is 2 per connection plus `first` x the cost of each node, and every object
+// costs 1. Per order: order 1 + address 1 + subtotal 2 + lineItems
+// (2 + 20 x (item 1 + price 2 + product 1)) = 86. 10 orders = 862.
+// 20 lines covers almost every order; the subtotal comes from the order
+// itself, so amount limits stay exact even for larger ones.
+export const IMPACT_LINE_ITEMS = 20;
 const RECENT_ORDERS_QUERY = `#graphql
   query CartGuardRecentOrders($first: Int!, $after: String) {
     orders(first: $first, after: $after, reverse: true, sortKey: CREATED_AT) {
@@ -547,7 +554,10 @@ const RECENT_ORDERS_QUERY = `#graphql
         email
         shippingAddress { address1 address2 city provinceCode zip countryCode }
         currencyCode
-        lineItems(first: 40) {
+        subtotalPriceSet {
+          shopMoney { amount }
+        }
+        lineItems(first: ${IMPACT_LINE_ITEMS}) {
           nodes {
             quantity
             originalTotalSet {
@@ -569,6 +579,8 @@ type OrderNode = {
   email?: string | null;
   currencyCode?: string | null;
   shippingAddress?: CartAddress | null;
+  /** Order subtotal in the shop currency, after line discounts. */
+  subtotalPriceSet?: { shopMoney?: Money } | null;
   lineItems?: {
     nodes?: Array<{
       quantity?: number | null;
@@ -580,7 +592,8 @@ type OrderNode = {
 };
 
 function toAmount(money: Money | undefined): number | null {
-  const amount = Number(money?.amount);
+  if (typeof money?.amount !== "string" || money.amount.trim() === "") return null;
+  const amount = Number(money.amount);
   return Number.isFinite(amount) ? amount : null;
 }
 
@@ -612,6 +625,9 @@ function orderToCart(order: OrderNode, limitTags: Set<string>): CartInput {
     customerEmail: order.email ?? null,
     lines,
     addresses: order.shippingAddress ? [{ groupIndex: 0, address: order.shippingAddress }] : [],
+    // Same figure checkout compares against (cart subtotal). Falls back to the
+    // line prices when Shopify doesn't send it.
+    totalAmount: toAmount(order.subtotalPriceSet?.shopMoney),
     currencyCode: order.currencyCode ?? null,
   };
 }
@@ -673,6 +689,7 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
   // did not advance). The loop is bounded by orders scanned, so a page that
   // yields no nodes would otherwise spin until the budget check or forever.
   const seenCursors = new Set<string>();
+  let waitedMs = 0;
   while (orders.length < IMPACT_MAX_ORDERS) {
     const queryResult: { data: OrdersQueryResult; cost?: GraphqlCost } = await adminGraphql<OrdersQueryResult>(
       admin,
@@ -692,7 +709,17 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
     seenCursors.add(cursor);
     after = cursor;
     const available = queryResult.cost?.throttleStatus?.currentlyAvailable;
-    if (typeof available === "number" && available < IMPACT_MIN_BUDGET) break;
+    if (typeof available === "number" && available < IMPACT_MIN_BUDGET) {
+      // Let Shopify's rate limit refill instead of firing a request it would
+      // throttle. Waiting is capped, after which the orders read so far are used.
+      const restoreRate = queryResult.cost?.throttleStatus?.restoreRate;
+      const waitMs = typeof restoreRate === "number" && restoreRate > 0
+        ? Math.ceil(((IMPACT_MIN_BUDGET - available) / restoreRate) * 1000)
+        : Number.POSITIVE_INFINITY;
+      if (waitedMs + waitMs > IMPACT_MAX_WAIT_MS) break;
+      waitedMs += waitMs;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
   }
   return simulateOrders(orders.slice(0, IMPACT_MAX_ORDERS), config);
 }
