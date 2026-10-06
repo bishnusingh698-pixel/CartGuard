@@ -181,6 +181,8 @@
   "rules.simulateFailed": "De test is niet voltooid.",
   "rules.impactFailed": "We konden deze regels niet testen op je recente bestellingen. {reason} Je kunt ze alsnog opslaan.",
   "rules.impactLimited": "Controleert maximaal 20 producten per bestelling. Er is niets gewijzigd.",
+  "impact.customerDataHidden": "Shopify heeft CartGuard nog geen toegang gegeven tot e-mailadressen en adressen van klanten, dus regels voor landen, adressen en vertrouwde klanten zijn niet getest. Regels voor aantallen en orderbedragen wel.",
+  "orders.errorDetail": "Details voor support: {detail}",
   "fields.countries.label": "Blokkeer bestellingen die naar deze landen worden gestuurd",
   "fields.countries.help": "Dit geldt ook voor vertrouwde klanten.",
   "fields.countries.empty": "Geen landen geblokkeerd.",

@@ -181,6 +181,8 @@
   "rules.simulateFailed": "Il test non è stato completato.",
   "rules.impactFailed": "Non siamo riusciti a provare queste regole sui tuoi ordini recenti. {reason} Puoi comunque salvarle.",
   "rules.impactLimited": "Controlla fino a 20 prodotti per ordine. Non è stato modificato nulla.",
+  "impact.customerDataHidden": "Shopify non ha ancora autorizzato CartGuard a vedere email e indirizzi dei clienti, quindi le regole su paese, indirizzo e clienti fidati non sono state testate. Quelle su quantità e importo dell'ordine sì.",
+  "orders.errorDetail": "Dettagli per l'assistenza: {detail}",
   "fields.countries.label": "Blocca gli ordini spediti verso questi paesi",
   "fields.countries.help": "Si applica anche ai clienti fidati.",
   "fields.countries.empty": "Nessun paese bloccato.",

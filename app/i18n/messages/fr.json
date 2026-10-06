@@ -181,6 +181,8 @@
   "rules.simulateFailed": "Le test ne s'est pas terminé.",
   "rules.impactFailed": "Nous n'avons pas pu tester ces règles sur vos commandes récentes. {reason} Vous pouvez toujours les enregistrer.",
   "rules.impactLimited": "Vérifie jusqu'à 20 produits par commande. Rien n'a été modifié.",
+  "impact.customerDataHidden": "Shopify n'a pas encore autorisé CartGuard à voir les e-mails et adresses des clients : les règles de pays, d'adresse et de clients de confiance n'ont pas été testées. Celles de quantité et de montant de commande l'ont été.",
+  "orders.errorDetail": "Détails pour le support : {detail}",
   "fields.countries.label": "Bloquer les commandes livrées vers ces pays",
   "fields.countries.help": "S'applique également aux clients de confiance.",
   "fields.countries.empty": "Aucun pays bloqué.",

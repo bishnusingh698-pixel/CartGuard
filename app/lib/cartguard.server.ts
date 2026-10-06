@@ -93,6 +93,11 @@ export type ImpactResult = {
   matches: ImpactMatch[];
   /** Orders stopped by each section. An order can count in several. */
   bySection: Record<RuleSection, number>;
+  /**
+   * Shopify withheld order emails and addresses (protected customer data not
+   * yet approved), so country, address and trusted-customer rules weren't tested.
+   */
+  customerDataHidden?: boolean;
 };
 
 export type ActionResponse = {
@@ -544,15 +549,17 @@ const IMPACT_SAMPLE_LIMIT = 5;
 // 20 lines covers almost every order; the subtotal comes from the order
 // itself, so amount limits stay exact even for larger ones.
 export const IMPACT_LINE_ITEMS = 20;
-const RECENT_ORDERS_QUERY = `#graphql
+// Email and shipping address are protected customer data. Until Shopify
+// approves the app for them, asking for them fails the whole query, so the
+// checker retries without them and says which rules it couldn't test.
+const recentOrdersQuery = (includeCustomer: boolean) => `#graphql
   query CartGuardRecentOrders($first: Int!, $after: String) {
     orders(first: $first, after: $after, reverse: true, sortKey: CREATED_AT) {
       pageInfo { hasNextPage endCursor }
       nodes {
         id
         name
-        email
-        shippingAddress { address1 address2 city provinceCode zip countryCode }
+        ${includeCustomer ? "email\n        shippingAddress { address1 address2 city provinceCode zip countryCode }" : ""}
         currencyCode
         subtotalPriceSet {
           shopMoney { amount }
@@ -678,6 +685,11 @@ export function simulateOrders(orders: OrderNode[], config: RuleConfig): ImpactR
   return { scanned: orders.length, blocked, samples, matches, bySection };
 }
 
+/** Shopify's refusal to share protected customer data with an unapproved app. */
+export function isProtectedDataError(error: unknown): boolean {
+  return /not approved to (?:access|use)|protected customer data/i.test(errorMessage(error));
+}
+
 type OrdersQueryResult = {
   orders?: { pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }; nodes?: OrderNode[] } | null;
 };
@@ -690,12 +702,20 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
   // yields no nodes would otherwise spin until the budget check or forever.
   const seenCursors = new Set<string>();
   let waitedMs = 0;
+  let includeCustomer = true;
   while (orders.length < IMPACT_MAX_ORDERS) {
-    const queryResult: { data: OrdersQueryResult; cost?: GraphqlCost } = await adminGraphql<OrdersQueryResult>(
-      admin,
-      RECENT_ORDERS_QUERY,
-      { first: IMPACT_PAGE_SIZE, after },
-    );
+    let queryResult: { data: OrdersQueryResult; cost?: GraphqlCost };
+    try {
+      queryResult = await adminGraphql<OrdersQueryResult>(admin, recentOrdersQuery(includeCustomer), {
+        first: IMPACT_PAGE_SIZE,
+        after,
+      });
+    } catch (error) {
+      if (error instanceof Response || !includeCustomer || !isProtectedDataError(error)) throw error;
+      console.warn("[CartGuard] Order emails and addresses withheld by Shopify, checking without them:", errorMessage(error));
+      includeCustomer = false;
+      continue;
+    }
     const page: OrdersQueryResult["orders"] = queryResult.data.orders;
     // `nodes` is typed as an array but arrives as whatever the API sent. Spreading
     // a non-iterable threw "Spread syntax requires ...iterable", which surfaced
@@ -721,7 +741,8 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
   }
-  return simulateOrders(orders.slice(0, IMPACT_MAX_ORDERS), config);
+  const result = simulateOrders(orders.slice(0, IMPACT_MAX_ORDERS), config);
+  return includeCustomer ? result : { ...result, customerDataHidden: true };
 }
 
 /** Re-exported for the rules route. */

@@ -181,6 +181,8 @@
   "rules.simulateFailed": "The test didn't finish.",
   "rules.impactFailed": "We couldn't test these rules on your recent orders. {reason} You can still save them.",
   "rules.impactLimited": "Checks up to 20 products per order. Nothing was changed.",
+  "impact.customerDataHidden": "Shopify hasn't approved CartGuard to see customer emails and addresses yet, so country, address and trusted-customer rules weren't tested. Quantity and order amount rules were.",
+  "orders.errorDetail": "Details for support: {detail}",
   "fields.countries.label": "Block orders shipping to these countries",
   "fields.countries.help": "This also applies to trusted customers.",
   "fields.countries.empty": "No countries blocked.",

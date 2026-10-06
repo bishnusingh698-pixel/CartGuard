@@ -181,6 +181,8 @@
   "rules.simulateFailed": "テストを完了できませんでした。",
   "rules.impactFailed": "最近の注文でこれらのルールをテストできませんでした。{reason}保存することはできます。",
   "rules.impactLimited": "1 件の注文につき最大 20 件の商品を確認します。変更は行われていません。",
+  "impact.customerDataHidden": "Shopify がまだ CartGuard に顧客のメールアドレスと住所の閲覧を許可していないため、国・住所・信頼できる顧客のルールはテストされませんでした。数量と注文金額のルールはテスト済みです。",
+  "orders.errorDetail": "サポート用の詳細: {detail}",
   "fields.countries.label": "これらの国への注文をブロック",
   "fields.countries.help": "信頼する顧客にも適用されます。",
   "fields.countries.empty": "ブロックした国はありません。",
