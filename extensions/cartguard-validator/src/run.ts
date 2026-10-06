@@ -47,8 +47,10 @@ export type RunInput = {
       } | null;
     } | null> | null;
     deliveryGroups?: Array<{ deliveryAddress?: CartAddress | null } | null> | null;
-    cost?: { totalAmount?: { amount?: string | null; currencyCode?: string | null } | null } | null;
+    cost?: { subtotalAmount?: { amount?: string | null; currencyCode?: string | null } | null } | null;
   } | null;
+  /** Cart currency units per one unit of shop currency (Decimal string). */
+  presentmentCurrencyRate?: string | number | null;
   shop?: {
     settings?: MetafieldValue;
     regex_rules?: MetafieldValue;
@@ -96,14 +98,21 @@ export function toCartInput(input: RunInput): CartInput {
     if (group?.deliveryAddress) addresses.push({ groupIndex, address: group.deliveryAddress });
   });
 
-  const totalAmount = cart?.cost?.totalAmount;
+  // Subtotal, not total: shipping and taxes are added during checkout, so a
+  // total would let the same cart pass on one step and fail on the next. It
+  // also matches the Impact Checker, which sums line prices.
+  const subtotal = cart?.cost?.subtotalAmount;
+  const rate = parseAmount(
+    typeof input.presentmentCurrencyRate === "number" ? String(input.presentmentCurrencyRate) : input.presentmentCurrencyRate,
+  );
   return {
     email: cart?.buyerIdentity?.email ?? null,
     customerEmail: cart?.buyerIdentity?.customer?.email ?? null,
     lines,
     addresses,
-    totalAmount: parseAmount(totalAmount?.amount),
-    currencyCode: totalAmount?.currencyCode ?? null,
+    totalAmount: parseAmount(subtotal?.amount),
+    currencyCode: subtotal?.currencyCode ?? null,
+    currencyRate: rate !== null && rate > 0 ? rate : 1,
   };
 }
 

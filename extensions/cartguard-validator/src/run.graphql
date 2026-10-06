@@ -37,13 +37,14 @@ query RunInput($limitTags: [String!] = []) {
         countryCode
       }
     }
-  }
-  cost {
-    totalAmount {
-      amount
-      currencyCode
+    cost {
+      subtotalAmount {
+        amount
+        currencyCode
+      }
     }
   }
+  presentmentCurrencyRate
   shop {
     settings: metafield(namespace: "$app:cartguard", key: "settings") { value }
     regex_rules: metafield(namespace: "$app:cartguard", key: "regex_rules") { value }

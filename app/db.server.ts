@@ -6,7 +6,7 @@ declare global {
 }
 
 function createPrismaMock() {
-  console.warn("[AI Studio] Database not connected — using in-memory mock");
+  console.warn("[CartGuard] DATABASE_URL not set — using in-memory mock");
   const inMemorySessions = new Map<string, any>();
   const sessionMock = {
     count: async () => inMemorySessions.size,
@@ -72,6 +72,7 @@ function createPrismaMock() {
     findFirst: async () => null,
     findUnique: async () => null,
     create: async (d: any) => d?.data ?? {},
+    upsert: async (d: any) => d?.create ?? {},
     update: async (d: any) => d?.data ?? {},
     delete: async () => ({}),
     deleteMany: async () => ({ count: 0 }),

@@ -12,11 +12,22 @@ if (process.env.HOST && (!process.env.SHOPIFY_APP_URL || process.env.SHOPIFY_APP
   }
 }
 
+// Vite rejects requests whose Host header it doesn't know, which would block
+// the Shopify CLI tunnel in development.
+let appHost: string | undefined;
+try {
+  appHost = process.env.SHOPIFY_APP_URL ? new URL(process.env.SHOPIFY_APP_URL).hostname : undefined;
+} catch {
+  appHost = undefined;
+}
+
 export default defineConfig({
   server: {
     host: "0.0.0.0",
-    port: 3000,
+    // `shopify app dev` picks a free port and passes it as PORT.
+    port: Number(process.env.PORT || 3000),
     strictPort: true,
+    allowedHosts: appHost && appHost !== "localhost" ? [appHost] : undefined,
     hmr: false,
     fs: {
       // The admin imports the shared rule engine from the Function source.

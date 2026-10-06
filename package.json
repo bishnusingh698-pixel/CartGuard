@@ -15,6 +15,7 @@
     "test": "node scripts/check-locales.mjs && vitest run",
     "check:locales": "node scripts/check-locales.mjs",
     "shopify": "shopify",
+    "predeploy": "npm run function:install",
     "deploy": "shopify app deploy",
     "function:install": "npm --prefix extensions/cartguard-validator install",
     "function:schema": "shopify app function schema --path extensions/cartguard-validator",

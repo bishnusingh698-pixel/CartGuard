@@ -370,7 +370,7 @@ describe("minimum and maximum limits", () => {
   it("blocks orders over the maximum order amount", () => {
     const violations = evaluateCart(line(1, 600), config({ quantityLimits: { all: { maxAmount: 500 } } }));
     expect(violations).toHaveLength(1);
-    expect(violations[0]).toMatchObject({ rule: "amount", target: "$.cart.cost.totalAmount" });
+    expect(violations[0]).toMatchObject({ rule: "amount", target: "$.cart.cost.subtotalAmount" });
     expect(violations[0].detail).toMatch(/\$600\.00/);
     expect(evaluateCart(line(1, 500), config({ quantityLimits: { all: { maxAmount: 500 } } }))).toHaveLength(0);
   });
@@ -502,7 +502,7 @@ describe("amount limits through the Function", () => {
         },
       ],
       deliveryGroups: [],
-      cost: { totalAmount: { amount: "500.00", currencyCode: "USD" } },
+      cost: { subtotalAmount: { amount: "500.00", currencyCode: "USD" } },
     },
     shop: {
       settings: { value: JSON.stringify({ enable_quantity: true }) },
@@ -513,17 +513,31 @@ describe("amount limits through the Function", () => {
   it("reads the cart total from the Function input", () => {
     const errors = run(input).operations[0].validationAdd.errors;
     expect(errors).toHaveLength(1);
-    expect(errors[0].target).toBe("$.cart.cost.totalAmount");
+    expect(errors[0].target).toBe("$.cart.cost.subtotalAmount");
     expect(errors[0].message).toMatch(/\$400\.00/);
   });
 
+  it("converts shop-currency limits into the buyer's currency", () => {
+    // 500 EUR cart, rate 0.9 EUR per USD: the 400 USD limit is 360 EUR.
+    const eur = {
+      ...input,
+      presentmentCurrencyRate: "0.9",
+      cart: { ...input.cart, cost: { subtotalAmount: { amount: "350.00", currencyCode: "EUR" } } },
+    };
+    expect(run(eur).operations[0].validationAdd.errors).toHaveLength(0);
+    const over = { ...eur, cart: { ...eur.cart, cost: { subtotalAmount: { amount: "361.00", currencyCode: "EUR" } } } };
+    const errors = run(over).operations[0].validationAdd.errors;
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toMatch(/360\.00/);
+  });
+
   it("ignores an unreadable total and still uses the line prices", () => {
-    const broken = { ...input, cart: { ...input.cart, cost: { totalAmount: { amount: "" } } } };
+    const broken = { ...input, cart: { ...input.cart, cost: { subtotalAmount: { amount: "" } } } };
     expect(run(broken).operations[0].validationAdd.errors).toHaveLength(1);
   });
 
   it("blocks nothing when no price is readable anywhere", () => {
-    const priceless = { ...input, cart: { lines: [], deliveryGroups: [], cost: { totalAmount: { amount: "n/a" } } } };
+    const priceless = { ...input, cart: { lines: [], deliveryGroups: [], cost: { subtotalAmount: { amount: "n/a" } } } };
     expect(run(priceless).operations[0].validationAdd.errors).toHaveLength(0);
   });
 

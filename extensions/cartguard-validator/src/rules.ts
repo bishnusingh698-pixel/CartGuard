@@ -108,7 +108,7 @@ export type CartLineInput = {
   quantity: number;
   /** Product tags that are relevant to the configured quantity limits. */
   tags: string[];
-  /** Price of one unit in the shop currency. Absent when the line has none. */
+  /** Price of one unit, in the cart's currency. Absent when the line has none. */
   unitPrice?: number | null;
 };
 
@@ -125,8 +125,14 @@ export type CartInput = {
    * evaluate the same rule the same way.
    */
   totalAmount?: number | null;
-  /** Currency code of the shop, used in amount messages. */
+  /** Currency code of totalAmount and unitPrice, used in amount messages. */
   currencyCode?: string | null;
+  /**
+   * Cart currency units per one unit of shop currency. Amount limits are set
+   * in the shop currency, so they are scaled by this before comparing with a
+   * cart priced in the buyer's currency. Defaults to 1.
+   */
+  currencyRate?: number | null;
 };
 
 export type ViolationRule = "country" | "quantity" | "amount" | "address" | "zip" | "city" | "state";
@@ -736,8 +742,11 @@ function formatMoney(amount: number, currencyCode: string | null | undefined): s
 }
 
 function evaluateOrderAmount(cart: CartInput, limits: Record<string, QuantityLimit>): Violation[] {
-  const { min, max } = amountBounds(cart, limits);
-  if (min === undefined && max === undefined) return [];
+  const bounds = amountBounds(cart, limits);
+  if (bounds.min === undefined && bounds.max === undefined) return [];
+  const rate = typeof cart.currencyRate === "number" && Number.isFinite(cart.currencyRate) && cart.currencyRate > 0 ? cart.currencyRate : 1;
+  const min = bounds.min === undefined ? undefined : roundMoney(bounds.min * rate);
+  const max = bounds.max === undefined ? undefined : roundMoney(bounds.max * rate);
   const total = cartTotal(cart);
   // Without a trustworthy total there is nothing to compare, and a checkout
   // must never be blocked on a guess.
@@ -747,7 +756,7 @@ function evaluateOrderAmount(cart: CartInput, limits: Record<string, QuantityLim
       {
         rule: "amount",
         message: `Orders over ${formatMoney(max, cart.currencyCode)} can't be placed online. Please contact us for help.`,
-        target: "$.cart.cost.totalAmount",
+        target: "$.cart.cost.subtotalAmount",
         detail: `order total ${formatMoney(total, cart.currencyCode)} is above the maximum of ${formatMoney(max, cart.currencyCode)}`,
       },
     ];
@@ -757,7 +766,7 @@ function evaluateOrderAmount(cart: CartInput, limits: Record<string, QuantityLim
       {
         rule: "amount",
         message: `Orders need to be at least ${formatMoney(min, cart.currencyCode)}. Please add more to your cart to continue.`,
-        target: "$.cart.cost.totalAmount",
+        target: "$.cart.cost.subtotalAmount",
         detail: `order total ${formatMoney(total, cart.currencyCode)} is below the minimum of ${formatMoney(min, cart.currencyCode)}`,
       },
     ];
