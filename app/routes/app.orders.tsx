@@ -27,7 +27,7 @@ import {
 } from "@shopify/polaris";
 
 import { useI18n } from "../i18n/context";
-import { friendlyErrorMessage } from "../lib/admin-api.server";
+import { errorMessage, friendlyErrorMessage } from "../lib/admin-api.server";
 import { type ImpactMatch, type ImpactResult, effectiveRaw, parseConfig, readConfiguration, simulateImpact } from "../lib/cartguard.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { type RuleSection, SECTION_TITLE_KEY, formatShare, summarizeSections } from "../lib/rule-summary";
@@ -39,7 +39,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return json<RulesState>(await loadRulesState(admin, isDemo));
 }
 
-type CheckResponse = { ok: boolean; impact?: ImpactResult; message?: string; checkedAt?: string };
+type CheckResponse = { ok: boolean; impact?: ImpactResult; message?: string; detail?: string; checkedAt?: string };
 
 export async function action({ request }: ActionFunctionArgs) {
   const { admin } = await getAdmin(request);
@@ -50,7 +50,9 @@ export async function action({ request }: ActionFunctionArgs) {
   } catch (error) {
     if (error instanceof Response) throw error;
     console.error("[CartGuard] Order check failed:", error);
-    return json<CheckResponse>({ ok: false, message: friendlyErrorMessage(error) }, { status: 500 });
+    // Shopify's own wording, so the merchant can pass it on to support.
+    const detail = errorMessage(error).slice(0, 300);
+    return json<CheckResponse>({ ok: false, message: friendlyErrorMessage(error), detail }, { status: 500 });
   }
 }
 
@@ -144,6 +146,11 @@ function Results({ impact, isDemo, t, number }: { impact: ImpactResult; isDemo: 
 
   return (
     <BlockStack gap="400">
+      {impact.customerDataHidden && (
+        <Banner tone="warning">
+          <Text as="p">{t("impact.customerDataHidden")}</Text>
+        </Banner>
+      )}
       <Card>
         <BlockStack gap="400">
           <InlineGrid columns={{ xs: 1, sm: 3 }} gap="400">
@@ -224,7 +231,14 @@ export default function OrderCheckPage() {
   } else if (!data.ok || !data.impact) {
     body = (
       <Banner tone="critical" title={t("orders.failed")} action={{ content: t("common.tryAgain"), onAction: run }}>
-        <Text as="p">{data.message ?? t("orders.failedHint")}</Text>
+        <BlockStack gap="200">
+          <Text as="p">{data.message ?? t("orders.failedHint")}</Text>
+          {data.detail && (
+            <Text as="p" variant="bodySm" tone="subdued">
+              {t("orders.errorDetail", { detail: data.detail })}
+            </Text>
+          )}
+        </BlockStack>
       </Banner>
     );
   } else {

@@ -65,7 +65,7 @@ export function friendlyErrorMessage(error: unknown): string {
   if (/throttl|rate limit|\b429\b/.test(detail)) {
     return "Shopify is handling a lot of requests from your store right now. Wait a minute and try again.";
   }
-  if (/not approved to access|protected customer data/.test(detail)) {
+  if (/not approved to (access|use)|protected customer data/.test(detail)) {
     return "CartGuard hasn't been approved by Shopify to read order details yet, so it can't test your rules on past orders. Your rules still work at checkout.";
   }
   if (/max cost limit|exceeds the single query/.test(detail)) {

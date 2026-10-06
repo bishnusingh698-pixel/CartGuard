@@ -453,6 +453,11 @@ function ImpactSummary({ impact }: { impact: ImpactResult }) {
           ))}
         </List>
       )}
+      {impact.customerDataHidden && (
+        <Text as="p" variant="bodySm" tone="caution">
+          {t("impact.customerDataHidden")}
+        </Text>
+      )}
       <Text as="p" variant="bodySm" tone="subdued">
         {t("rules.impactLimited")}
       </Text>

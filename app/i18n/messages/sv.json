@@ -181,6 +181,8 @@
   "rules.simulateFailed": "Testet slutfördes inte.",
   "rules.impactFailed": "Vi kunde inte testa de här reglerna på dina nyliga order. {reason} Du kan fortfarande spara dem.",
   "rules.impactLimited": "Kontrollerar upp till 20 produkter per order. Inget har ändrats.",
+  "impact.customerDataHidden": "Shopify har ännu inte godkänt att CartGuard ser kunders e-post och adresser, så regler för länder, adresser och betrodda kunder testades inte. Regler för antal och orderbelopp testades.",
+  "orders.errorDetail": "Detaljer för support: {detail}",
   "fields.countries.label": "Blockera order som skickas till de här länderna",
   "fields.countries.help": "Det gäller även betrodda kunder.",
   "fields.countries.empty": "Inga länder blockerade.",

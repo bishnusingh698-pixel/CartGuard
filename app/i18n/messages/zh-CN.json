@@ -181,6 +181,8 @@
   "rules.simulateFailed": "测试未完成。",
   "rules.impactFailed": "我们无法用您的近期订单测试这些规则。{reason}您仍然可以保存。",
   "rules.impactLimited": "每个订单最多检查 20 件商品。未做任何更改。",
+  "impact.customerDataHidden": "Shopify 尚未批准 CartGuard 查看客户邮箱和地址，因此未测试国家、地址和受信任客户规则。数量和订单金额规则已测试。",
+  "orders.errorDetail": "供支持人员参考的详情：{detail}",
   "fields.countries.label": "拦截配送至以下国家的订单",
   "fields.countries.help": "此规则同样适用于可信客户。",
   "fields.countries.empty": "未屏蔽任何国家。",
