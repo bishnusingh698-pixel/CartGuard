@@ -30,12 +30,14 @@ import {
   type CartGuardSettings,
   type CartInput,
   type CartLineInput,
+  type EmailBlocklist,
   type GeoBlocklist,
   type QuantityLimit,
   type RawConfig,
   type RegexRule,
   type RuleConfig,
   type ViolationRule,
+  MAX_EMAIL_DOMAINS,
   MAX_ORDER_AMOUNT,
   MAX_PATTERN_LENGTH,
   MAX_REGEX_RULES,
@@ -46,6 +48,7 @@ import {
   evaluateCart,
   isRecord,
   isRiskyPattern,
+  normalizeEmailDomain,
   normalizeText,
   parseConfig,
 } from "../../extensions/cartguard-validator/src/rules";
@@ -55,7 +58,7 @@ export const LEGACY_NAMESPACE = "cartguard";
 export const METAFIELD_TYPE = "json";
 export const LEGACY_METAFIELD_TYPE = "single_line_text_field";
 export const FUNCTION_CONFIG_KEY = "function-configuration";
-export const CONFIG_KEYS = ["settings", "regex_rules", "quantity_limits", "geo_blocklist", "vip_allowlist"] as const;
+export const CONFIG_KEYS = ["settings", "regex_rules", "quantity_limits", "geo_blocklist", "vip_allowlist", "email_blocklist"] as const;
 type ConfigKey = (typeof CONFIG_KEYS)[number];
 
 /** Conservative per-value limit for metafields read by Shopify Functions. */
@@ -227,7 +230,7 @@ function readLimitBounds(key: string, value: unknown, add: (section: RuleSection
   }
 
   const present = (raw: unknown): boolean => raw !== undefined && raw !== null && raw !== "";
-  const hasUnits = present(value.min) || present(value.max);
+  const hasUnits = present(value.min) || present(value.max) || present(value.multiple);
   const hasAmount = present(value.minAmount) || present(value.maxAmount);
   if (!hasUnits && !hasAmount) {
     add("quantity", `${label}: set a minimum, a maximum or an order amount, or remove this limit.`);
@@ -238,8 +241,13 @@ function readLimitBounds(key: string, value: unknown, add: (section: RuleSection
   const max = units(value.max);
   const minAmount = money(value.minAmount);
   const maxAmount = money(value.maxAmount);
+  const multiple = units(value.multiple);
   if ((present(value.min) && min === null) || (present(value.max) && max === null)) {
     add("quantity", `${label}: unit limits must be whole numbers from 1 to ${formatNumber(MAX_UNITS)}.`);
+    return null;
+  }
+  if (present(value.multiple) && (multiple === null || multiple < 2)) {
+    add("quantity", `${label}: the pack size must be a whole number from 2 to ${formatNumber(MAX_UNITS)}.`);
     return null;
   }
   if ((present(value.minAmount) && minAmount === null) || (present(value.maxAmount) && maxAmount === null)) {
@@ -266,6 +274,7 @@ function readLimitBounds(key: string, value: unknown, add: (section: RuleSection
   if (max !== null) limit.max = max;
   if (minAmount !== null) limit.minAmount = minAmount;
   if (maxAmount !== null) limit.maxAmount = maxAmount;
+  if (multiple !== null) limit.multiple = multiple;
   return limit;
 }
 
@@ -423,7 +432,34 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
     vipAllowlist = uniqueCaseInsensitive(rawVip.slice(0, MAX_LIST_ENTRIES));
   }
 
-  const config: RuleConfig = { settings, regexRules, quantityLimits, geoBlocklist, vipAllowlist };
+  // Email addresses
+  const emailBlocklist: EmailBlocklist = { domains: [], blockDisposable: false };
+  const rawEmail = body.emailBlocklist ?? {};
+  if (!isRecord(rawEmail)) {
+    add("email", `Your email rules couldn't be read. ${RELOAD_HINT}`);
+  } else {
+    const list = readStringList(rawEmail.domains);
+    if (!list) {
+      add("email", `Your blocked email domains couldn't be read. ${RELOAD_HINT}`);
+    } else {
+      if (list.length > MAX_EMAIL_DOMAINS) add("email", `You can block up to ${MAX_EMAIL_DOMAINS} email domains.`);
+      const bad = list.filter((entry) => entry.length > MAX_ENTRY_LENGTH || !normalizeEmailDomain(entry));
+      if (bad.length > 0) {
+        add("email", `These aren't email domains: ${bad.slice(0, 5).join(", ")}. Use a domain like example.com.`);
+      }
+      emailBlocklist.domains = uniqueCaseInsensitive(list.slice(0, MAX_EMAIL_DOMAINS).map(normalizeEmailDomain).filter(Boolean));
+    }
+    emailBlocklist.blockDisposable = rawEmail.blockDisposable === true;
+    if (rawEmail.message !== undefined) {
+      if (typeof rawEmail.message !== "string" || rawEmail.message.length > MAX_MESSAGE_LENGTH) {
+        add("email", `Keep the customer message under ${MAX_MESSAGE_LENGTH} characters.`);
+      } else if (rawEmail.message.trim()) {
+        emailBlocklist.message = rawEmail.message.trim();
+      }
+    }
+  }
+
+  const config: RuleConfig = { settings, regexRules, quantityLimits, geoBlocklist, vipAllowlist, emailBlocklist };
 
   // Size limits for checkout
   if (Object.keys(errors).length === 0) {
@@ -433,6 +469,7 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
       ["quantity_limits", "quantity"],
       ["geo_blocklist", "geo"],
       ["vip_allowlist", "vip"],
+      ["email_blocklist", "email"],
     ];
     for (const [key, section] of sizeChecks) {
       if (byteLength(values[key]) > MAX_METAFIELD_BYTES) {
@@ -457,6 +494,7 @@ export function serializeConfig(config: RuleConfig): Record<ConfigKey, string> {
     quantity_limits: JSON.stringify(quantity),
     geo_blocklist: JSON.stringify(config.geoBlocklist),
     vip_allowlist: JSON.stringify(config.vipAllowlist),
+    email_blocklist: JSON.stringify(config.emailBlocklist ?? { domains: [], blockDisposable: false }),
   };
 }
 
@@ -647,6 +685,7 @@ const VIOLATION_SECTION: Record<ViolationRule, RuleSection> = {
   address: "address",
   quantity: "quantity",
   amount: "quantity",
+  email: "email",
 };
 
 const capitalize = (text: string) => (text ? text[0].toUpperCase() + text.slice(1) : text);
@@ -661,7 +700,7 @@ export function simulateOrders(orders: OrderNode[], config: RuleConfig): ImpactR
   let blocked = 0;
   const samples: string[] = [];
   const matches: ImpactMatch[] = [];
-  const bySection: Record<RuleSection, number> = { geo: 0, address: 0, quantity: 0, vip: 0 };
+  const bySection: Record<RuleSection, number> = { geo: 0, address: 0, quantity: 0, email: 0, vip: 0 };
   const limitTags = new Set(collectLimitTags(config.quantityLimits).map((tag) => tag.trim().toLowerCase()));
   for (const order of orders) {
     const violations = evaluateCart(orderToCart(order, limitTags), config);

@@ -22,6 +22,7 @@ const mockMetafieldsStore = new Map<string, string>([
       enable_po_box: true,
       enable_quantity: true,
       enable_geo: false,
+      enable_email: true,
     }),
   ],
   [
@@ -61,6 +62,10 @@ const mockMetafieldsStore = new Map<string, string>([
   [
     "vip_allowlist",
     JSON.stringify(["vip@customer.com", "123 Executive Blvd"]),
+  ],
+  [
+    "email_blocklist",
+    JSON.stringify({ domains: ["fraud-example.test"], blockDisposable: true }),
   ],
 ]);
 

@@ -8,6 +8,9 @@
  *   running the cartguard-validator Function) exists and is enabled.
  * - "Test on recent orders" simulates the rules on recent orders with the
  *   same rule engine the checkout Function uses.
+ * - The page opens with a three-step guide, links to every section and
+ *   ready-made templates, and ends with "Try a checkout", which runs the
+ *   unsaved rules on an address and email the merchant types.
  */
 
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
@@ -48,6 +51,8 @@ import {
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { type ValidationStatus } from "../lib/validation.server";
 import { CountryPicker, ListField, RegionPicker } from "../components/rule-fields";
+import { CheckoutTester } from "../components/checkout-tester";
+import { RULE_TEMPLATES, TEMPLATE_SECTION, applyTemplate, templateApplied, type RuleTemplate } from "../lib/rule-templates";
 import { SectionBadge, useSectionStatusText } from "../components/section-status";
 import { describeScopedEntry, getCountryOptions, type Option } from "../lib/regions";
 import {
@@ -60,6 +65,7 @@ import {
   newAddressRule,
   newLimit,
   parseCity,
+  parseEmailDomain,
   parseKeyword,
   parseVipAddress,
   parseVipEmail,
@@ -86,6 +92,8 @@ import {
 } from "../lib/rule-summary";
 import {
   DEFAULT_ADDRESS_MESSAGE,
+  DEFAULT_EMAIL_MESSAGE,
+  DISPOSABLE_EMAIL_DOMAINS,
   isRecord,
   type FeatureFlag,
 } from "../../extensions/cartguard-validator/src/rules";
@@ -337,7 +345,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
             {t("common.remove")}
           </Button>
         </InlineStack>
-        <InlineGrid columns={{ xs: 1, md: everyProduct ? 2 : 3 }} gap="300">
+        <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
           <Select
             label={t("quantity.appliesTo")}
             options={targetOptions(t)}
@@ -356,6 +364,8 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
               autoComplete="off"
             />
           )}
+        </InlineGrid>
+        <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
           <TextField
             label={t("quantity.minUnits")}
             type="number"
@@ -364,7 +374,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
             step={1}
             value={row.min}
             onChange={(value) => onChange({ min: value })}
-            placeholder={t("quantity.placeholderMin")}
+            helpText={t("quantity.placeholderMin")}
             error={errors?.min}
             autoComplete="off"
           />
@@ -376,8 +386,20 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
             step={1}
             value={row.max}
             onChange={(value) => onChange({ max: value })}
-            placeholder={t("quantity.placeholderMax")}
+            helpText={t("quantity.placeholderMax")}
             error={errors?.max}
+            autoComplete="off"
+          />
+          <TextField
+            label={t("quantity.multiple")}
+            type="number"
+            min={2}
+            max={MAX_UNITS}
+            step={1}
+            value={row.multiple}
+            onChange={(value) => onChange({ multiple: value })}
+            helpText={t("quantity.multipleHelp")}
+            error={errors?.multiple}
             autoComplete="off"
           />
         </InlineGrid>
@@ -531,8 +553,119 @@ function FixListRow({ section, count, onJump }: { section: RuleSection; count: n
   );
 }
 
+const TESTER_ANCHOR = "try-a-checkout";
+
+function jumpToAnchor(anchor: string) {
+  document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function jumpTo(section: RuleSection) {
-  document.getElementById(SECTION_META[section].anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  jumpToAnchor(SECTION_META[section].anchor);
+}
+
+/* Getting around */
+
+const GUIDE_STEPS = ["rules.guide.step1", "rules.guide.step2", "rules.guide.step3"] as const;
+
+/**
+ * The top of the page: what to do in three steps, and a button per section
+ * that shows its status and scrolls to it. The page is long, so this is the
+ * map that keeps merchants from scrolling to find things.
+ */
+function RulesGuide({ summaries, errors }: { summaries: Record<RuleSection, SectionSummary>; errors: Record<RuleSection, number> }) {
+  const { t, number } = useI18n();
+  return (
+    <Card>
+      <BlockStack gap="400">
+        <BlockStack gap="200">
+          <Text as="h2" variant="headingMd">
+            {t("rules.guide.title")}
+          </Text>
+          <List type="number">
+            {GUIDE_STEPS.map((step) => (
+              <List.Item key={step}>{t(step)}</List.Item>
+            ))}
+          </List>
+        </BlockStack>
+        <Divider />
+        <BlockStack gap="200">
+          <Text as="h3" variant="headingSm">
+            {t("rules.guide.jump")}
+          </Text>
+          <nav aria-label={t("rules.guide.jump")}>
+            <InlineGrid columns={{ xs: 1, sm: 2, lg: 3 }} gap="200">
+              {[...RULE_SECTIONS, "tester" as const].map((section) => {
+                const isTester = section === "tester";
+                const title = isTester ? t("tester.title") : t(SECTION_TITLE_KEY[section]);
+                return (
+                  <Box key={section} padding="300" borderWidth="025" borderColor="border" borderRadius="200">
+                    <InlineStack align="space-between" blockAlign="center" gap="200" wrap={false}>
+                      <Link removeUnderline onClick={() => jumpToAnchor(isTester ? TESTER_ANCHOR : SECTION_META[section].anchor)}>
+                        {title}
+                      </Link>
+                      {!isTester && errors[section] > 0 ? (
+                        <Badge tone="critical">{t("rules.guide.toFix", { count: number(errors[section]) })}</Badge>
+                      ) : !isTester ? (
+                        <SectionBadge summary={summaries[section]} />
+                      ) : null}
+                    </InlineStack>
+                  </Box>
+                );
+              })}
+            </InlineGrid>
+          </nav>
+        </BlockStack>
+      </BlockStack>
+    </Card>
+  );
+}
+
+function RuleTemplates({ state, onApply }: { state: EditorState; onApply: (template: RuleTemplate) => void }) {
+  const { t } = useI18n();
+  return (
+    <Card>
+      <BlockStack gap="300">
+        <BlockStack gap="100">
+          <Text as="h2" variant="headingMd">
+            {t("templates.title")}
+          </Text>
+          <Text as="p" variant="bodySm" tone="subdued">
+            {t("templates.description")}
+          </Text>
+        </BlockStack>
+        <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
+          {RULE_TEMPLATES.map((template) => {
+            const applied = templateApplied(state, template);
+            return (
+              <Box key={template} padding="300" borderWidth="025" borderColor="border" borderRadius="200">
+                <BlockStack gap="200">
+                  <Text as="h3" variant="headingSm">
+                    {t(`templates.${template}.title`)}
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {t(`templates.${template}.body`)}
+                  </Text>
+                  <InlineStack>
+                    {applied ? (
+                      <Badge tone="success">{t("templates.added")}</Badge>
+                    ) : (
+                      <Button
+                        size="slim"
+                        onClick={() => onApply(template)}
+                        accessibilityLabel={`${t("templates.use")}: ${t(`templates.${template}.title`)}`}
+                      >
+                        {t("templates.use")}
+                      </Button>
+                    )}
+                  </InlineStack>
+                </BlockStack>
+              </Box>
+            );
+          })}
+        </InlineGrid>
+      </BlockStack>
+    </Card>
+  );
 }
 
 /* Page */
@@ -631,6 +764,13 @@ export default function BlockRulesPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [fetcher.data, fetcher.state, shopify]);
 
+  const applyTemplateToForm = (template: RuleTemplate) => {
+    setState((current) => applyTemplate(current, template));
+    shopify?.toast?.show(t("templates.appliedToast"));
+    // Let the section open before scrolling to it.
+    window.setTimeout(() => jumpTo(TEMPLATE_SECTION[template]), 50);
+  };
+
   const discard = () => {
     setState(saved);
     setResult(null);
@@ -704,7 +844,12 @@ export default function BlockRulesPage() {
 
         {result?.saved && !result.validationWarning && (
           <Layout.Section>
-            <Banner tone="success" title={t("rules.savedBanner.title")} onDismiss={() => setResult(null)}>
+            <Banner
+              tone="success"
+              title={t("rules.savedBanner.title")}
+              action={{ content: t("rules.savedBanner.next"), url: "/app/orders" }}
+              onDismiss={() => setResult(null)}
+            >
               <Text as="p">{t("rules.savedBanner.body")}</Text>
             </Banner>
           </Layout.Section>
@@ -763,6 +908,13 @@ export default function BlockRulesPage() {
             </Banner>
           </Layout.Section>
         )}
+
+        <Layout.Section>
+          <BlockStack gap="400">
+            <RulesGuide summaries={summaries} errors={errors.bySection} />
+            {RULE_TEMPLATES.some((template) => !templateApplied(state, template)) && <RuleTemplates state={state} onApply={applyTemplateToForm} />}
+          </BlockStack>
+        </Layout.Section>
 
         {/* Countries and regions */}
         <RuleSectionCard
@@ -840,6 +992,23 @@ export default function BlockRulesPage() {
                 checked={state.checks.military}
                 onChange={(checked) => setCheck("military", checked)}
               />
+              <Checkbox
+                label={t("address.houseNumber.label")}
+                helpText={t("address.houseNumber.help")}
+                checked={state.checks.house_number}
+                onChange={(checked) => setCheck("house_number", checked)}
+              />
+              {state.checks.house_number && (
+                <Box paddingInlineStart="600" maxWidth="360px">
+                  <Select
+                    label={t("address.houseNumber.country")}
+                    options={countryOptions}
+                    value={state.houseNumberCountry}
+                    onChange={(houseNumberCountry) => update({ houseNumberCountry })}
+                    error={errors.fields["address.houseNumber"]?.country}
+                  />
+                </Box>
+              )}
             </BlockStack>
             <ListField
               label={t("fields.keywords.label")}
@@ -914,6 +1083,45 @@ export default function BlockRulesPage() {
           </BlockStack>
         </RuleSectionCard>
 
+        {/* Email addresses */}
+        <RuleSectionCard
+          section="email"
+          summary={summaries.email}
+          errorCount={errors.bySection.email}
+          serverError={serverErrors.email}
+          onToggle={(enabled) => setFlag(SECTION_META.email.flag, enabled)}
+        >
+          <BlockStack gap="500">
+            <Checkbox
+              label={t("email.disposable.label")}
+              helpText={t("email.disposable.help", { count: number(DISPOSABLE_EMAIL_DOMAINS.length) })}
+              checked={state.blockDisposable}
+              onChange={(blockDisposable) => update({ blockDisposable })}
+            />
+            <ListField
+              label={t("fields.emailDomains.label")}
+              listName="blocked email domains"
+              helpText={t("fields.emailDomains.help")}
+              placeholder="example.com"
+              values={state.emailDomains}
+              onChange={(emailDomains) => update({ emailDomains })}
+              parse={parseEmailDomain}
+              emptyText={t("fields.emailDomains.empty")}
+              error={listError(LIST_FIELD_IDS.emailDomains)}
+            />
+            <TextField
+              label={t("email.messageLabel")}
+              value={state.emailMessage}
+              onChange={(emailMessage) => update({ emailMessage })}
+              placeholder={DEFAULT_EMAIL_MESSAGE}
+              maxLength={MESSAGE_MAX_LENGTH}
+              showCharacterCount
+              autoComplete="off"
+              error={errors.fields["email.message"]?.message}
+            />
+          </BlockStack>
+        </RuleSectionCard>
+
         {/* Trusted customers */}
         <RuleSectionCard
           section="vip"
@@ -948,6 +1156,12 @@ export default function BlockRulesPage() {
             />
           </BlockStack>
         </RuleSectionCard>
+
+        <Layout.AnnotatedSection id={TESTER_ANCHOR} title={t("tester.title")} description={t("tester.description")}>
+          <Card>
+            <CheckoutTester config={draft} countryOptions={countryOptions} />
+          </Card>
+        </Layout.AnnotatedSection>
 
         <Layout.Section>
           <PageActions primaryAction={primaryAction} secondaryActions={secondaryActions} />

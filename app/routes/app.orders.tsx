@@ -27,6 +27,7 @@ import {
 } from "@shopify/polaris";
 
 import { useI18n } from "../i18n/context";
+import { ORDERS_CHECKED_KEY, writeFlag } from "../components/setup-guide";
 import { errorMessage, friendlyErrorMessage } from "../lib/admin-api.server";
 import { type ImpactMatch, type ImpactResult, effectiveRaw, parseConfig, readConfiguration, simulateImpact } from "../lib/cartguard.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
@@ -56,7 +57,7 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-const BLOCKING_SECTIONS: RuleSection[] = ["geo", "address", "quantity"];
+const BLOCKING_SECTIONS: RuleSection[] = ["geo", "address", "quantity", "email"];
 
 type TFn = ReturnType<typeof useI18n>["t"];
 
@@ -196,16 +197,26 @@ export default function OrderCheckPage() {
   const submit = fetcher.submit;
   const run = useCallback(() => submit({}, { method: "post" }), [submit]);
 
-  // Run once on arrival so the results are one click from the nav.
-  const started = useRef(false);
+  // Run once on arrival so the results are one click from the nav. Keyed on
+  // the fetcher rather than a ref: React's development StrictMode mounts the
+  // page twice and drops the first submission, which left a ref-guarded check
+  // spinning forever in local previews.
+  // The attempt cap stops a run that never returns data from retrying forever.
+  const idleWithoutResult = fetcher.state === "idle" && !fetcher.data;
+  const autoRuns = useRef(0);
   useEffect(() => {
-    if (hasRules && !started.current) {
-      started.current = true;
+    if (hasRules && idleWithoutResult && autoRuns.current < 2) {
+      autoRuns.current += 1;
       run();
     }
-  }, [hasRules, run]);
+  }, [hasRules, idleWithoutResult, run]);
 
   const checkedAt = data?.checkedAt ? dateTime(data.checkedAt) : null;
+
+  // Ticks the "Test on your recent orders" step of the Overview setup guide.
+  useEffect(() => {
+    if (data?.ok) writeFlag(ORDERS_CHECKED_KEY);
+  }, [data]);
 
   let body: ReactNode;
   if (!hasRules) {

@@ -57,6 +57,7 @@ export type RunInput = {
     quantity_limits?: MetafieldValue;
     geo_blocklist?: MetafieldValue;
     vip_allowlist?: MetafieldValue;
+    email_blocklist?: MetafieldValue;
   } | null;
 };
 
@@ -138,6 +139,7 @@ export function run(input: RunInput): FunctionResult {
       quantity_limits: shop.quantity_limits?.value,
       geo_blocklist: shop.geo_blocklist?.value,
       vip_allowlist: shop.vip_allowlist?.value,
+      email_blocklist: shop.email_blocklist?.value,
     });
     const violations = evaluateCart(toCartInput(input ?? {}), config);
     return toResult(violations.map(({ message, target }) => ({ message, target })));
