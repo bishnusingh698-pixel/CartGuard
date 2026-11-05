@@ -1,7 +1,9 @@
 api_version = "2026-07"
 
 [[extensions]]
-name = "CartGuard Validator"
+name = "CartFence Validator"
+# Kept from the app's former name (CartGuard). Changing a Function handle makes
+# Shopify deploy it as a new Function and orphans validations already created.
 handle = "cartguard-validator"
 type = "function"
 
@@ -16,7 +18,7 @@ type = "function"
   path = "dist/index.wasm"
 
   # Variables for src/run.graphql ($limitTags). The app writes this metafield
-  # on CartGuard's Validation when the merchant saves rules.
+  # on CartFence's Validation when the merchant saves rules.
   [extensions.input.variables]
   namespace = "$app:cartguard"
   key = "function-configuration"

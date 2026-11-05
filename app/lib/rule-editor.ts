@@ -23,11 +23,11 @@ import {
   isRiskyPattern,
   normalizeEmailDomain,
   splitCountryScope,
-  type CartGuardSettings,
+  type CartFenceSettings,
   type QuantityLimit,
   type RegexRule,
   type RuleConfig,
-} from "../../extensions/cartguard-validator/src/rules";
+} from "../../extensions/cartfence-validator/src/rules";
 import { findCountry, isCountryCode, isValidStateEntry } from "./regions";
 import { formatNumber, type RuleSection } from "./rule-summary";
 
@@ -79,7 +79,7 @@ export type LimitRow = {
 };
 
 export type EditorState = {
-  settings: CartGuardSettings;
+  settings: CartFenceSettings;
   countries: string[];
   states: string[];
   cities: string[];

@@ -1,5 +1,5 @@
 {
-  "name": "cartguard-validator",
+  "name": "cartfence-validator",
   "private": true,
   "type": "module",
   "scripts": {

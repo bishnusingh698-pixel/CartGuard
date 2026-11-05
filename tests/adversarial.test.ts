@@ -20,8 +20,8 @@ import {
   type CartInput,
   type RegexRule,
   type RuleConfig,
-} from "../extensions/cartguard-validator/src/rules";
-import { parseConfig as parseAppConfig, simulateOrders, validateRuleConfig } from "../app/lib/cartguard.server";
+} from "../extensions/cartfence-validator/src/rules";
+import { parseConfig as parseAppConfig, simulateOrders, validateRuleConfig } from "../app/lib/cartfence.server";
 
 const ALL_ON = { enable_vip: true, enable_po_box: true, enable_quantity: true, enable_geo: true };
 

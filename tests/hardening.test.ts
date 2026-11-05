@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ADDRESS_PRESETS, isRiskyPattern } from "../extensions/cartguard-validator/src/rules";
+import { ADDRESS_PRESETS, isRiskyPattern } from "../extensions/cartfence-validator/src/rules";
 import { MerchantFacingError, friendlyErrorMessage } from "../app/lib/admin-api.server";
 import { canUseMockAdmin } from "../app/lib/admin-mock.server";
-import { validateRuleConfig } from "../app/lib/cartguard.server";
+import { validateRuleConfig } from "../app/lib/cartfence.server";
 import {
   DEFAULT_LANGUAGE,
   normalizeLanguage,

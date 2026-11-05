@@ -4,8 +4,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { evaluateCart, normalizeCountry, resolveCountryCode, type RuleConfig } from "../extensions/cartguard-validator/src/rules";
-import { simulateOrders } from "../app/lib/cartguard.server";
+import { evaluateCart, normalizeCountry, resolveCountryCode, type RuleConfig } from "../extensions/cartfence-validator/src/rules";
+import { simulateOrders } from "../app/lib/cartfence.server";
 
 const HOSTILE_KEYS = ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf", "isPrototypeOf"];
 

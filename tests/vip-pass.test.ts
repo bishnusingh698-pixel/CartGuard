@@ -14,7 +14,7 @@ import {
   type CartAddress,
   type CartInput,
   type RuleConfig,
-} from "../extensions/cartguard-validator/src/rules";
+} from "../extensions/cartfence-validator/src/rules";
 
 const ALL_ON = { enable_vip: true, enable_po_box: true, enable_quantity: true, enable_geo: true };
 

@@ -29,7 +29,7 @@ import {
 import { useI18n } from "../i18n/context";
 import { ORDERS_CHECKED_KEY, writeFlag } from "../components/setup-guide";
 import { errorMessage, friendlyErrorMessage } from "../lib/admin-api.server";
-import { type ImpactMatch, type ImpactResult, effectiveRaw, parseConfig, readConfiguration, simulateImpact } from "../lib/cartguard.server";
+import { type ImpactMatch, type ImpactResult, effectiveRaw, parseConfig, readConfiguration, simulateImpact } from "../lib/cartfence.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { type RuleSection, SECTION_TITLE_KEY, formatShare, summarizeSections } from "../lib/rule-summary";
 
@@ -50,7 +50,7 @@ export async function action({ request }: ActionFunctionArgs) {
     return json<CheckResponse>({ ok: true, impact, checkedAt: new Date().toISOString() });
   } catch (error) {
     if (error instanceof Response) throw error;
-    console.error("[CartGuard] Order check failed:", error);
+    console.error("[CartFence] Order check failed:", error);
     // Shopify's own wording, so the merchant can pass it on to support.
     const detail = errorMessage(error).slice(0, 300);
     return json<CheckResponse>({ ok: false, message: friendlyErrorMessage(error), detail }, { status: 500 });

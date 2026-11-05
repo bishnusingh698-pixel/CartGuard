@@ -7,10 +7,10 @@ import {
   parseConfig,
   type CartInput,
   type RuleConfig,
-} from "../extensions/cartguard-validator/src/rules";
-import { run } from "../extensions/cartguard-validator/src/run";
+} from "../extensions/cartfence-validator/src/rules";
+import { run } from "../extensions/cartfence-validator/src/run";
 import { configFromEditor, editorFromConfig, newLimit, parseEmailDomain, validateEditor } from "../app/lib/rule-editor";
-import { serializeConfig, simulateOrders, validateRuleConfig } from "../app/lib/cartguard.server";
+import { serializeConfig, simulateOrders, validateRuleConfig } from "../app/lib/cartfence.server";
 import { summarizeSections } from "../app/lib/rule-summary";
 import { RULE_TEMPLATES, applyTemplate, templateApplied } from "../app/lib/rule-templates";
 import { EMPTY_TESTER_INPUT, hasTesterInput, testCheckout } from "../app/components/checkout-tester";

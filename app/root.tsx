@@ -21,8 +21,8 @@ import { readRequestShop } from "./lib/request-shop.server";
 import { DEFAULT_LANGUAGE, type Language } from "./i18n/locales";
 
 export const meta: MetaFunction = () => [
-  { title: "CartGuard" },
-  { property: "og:title", content: "CartGuard" },
+  { title: "CartFence" },
+  { property: "og:title", content: "CartFence" },
   { name: "description", content: "Fraud prevention and cart validation rules enforced at checkout." },
   { property: "og:description", content: "Fraud prevention and cart validation rules enforced at checkout." },
 ];

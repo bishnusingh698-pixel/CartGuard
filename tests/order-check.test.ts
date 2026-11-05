@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ADDRESS_PRESETS, type RuleConfig } from "../extensions/cartguard-validator/src/rules";
-import { simulateOrders } from "../app/lib/cartguard.server";
+import { ADDRESS_PRESETS, type RuleConfig } from "../extensions/cartfence-validator/src/rules";
+import { simulateOrders } from "../app/lib/cartfence.server";
 
 const rules: RuleConfig = {
   settings: { enable_vip: false, enable_po_box: true, enable_quantity: false, enable_geo: true },

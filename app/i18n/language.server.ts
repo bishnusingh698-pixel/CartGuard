@@ -20,7 +20,7 @@ import prisma from "../db.server";
 import { DEFAULT_LANGUAGE, type Language, normalizeLanguage, pickLanguage, resolveLanguage } from "./locales";
 
 export type ResolvedLanguage = {
-  /** The language the app should render in. Always one CartGuard ships. */
+  /** The language the app should render in. Always one CartFence ships. */
   language: Language;
   /** True once the merchant has answered the first-launch picker, either way. */
   chosen: boolean;
@@ -49,7 +49,7 @@ export async function readSavedLanguage(shop: string | undefined): Promise<Saved
     return { language: normalizeLanguage(row?.language), asked: Boolean(row?.languageChosenAt) };
   } catch (error) {
     // A missing table must never block the app from loading in English.
-    console.warn("[CartGuard] Could not read the saved language preference:", error);
+    console.warn("[CartFence] Could not read the saved language preference:", error);
     return { language: null, asked: false };
   }
 }
@@ -69,7 +69,7 @@ export async function writeChosenLanguage(shop: string, language: Language | nul
       update: { language, languageChosenAt: now },
     });
   } catch (error) {
-    console.error("[CartGuard] Could not save the language preference:", error);
+    console.error("[CartFence] Could not save the language preference:", error);
     throw error;
   }
 }

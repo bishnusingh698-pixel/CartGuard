@@ -16,5 +16,5 @@ prisma/*.sqlite*
 Thumbs.db
 .idea
 .vscode
-extensions/cartguard-validator/dist
-extensions/cartguard-validator/node_modules
+extensions/cartfence-validator/dist
+extensions/cartfence-validator/node_modules

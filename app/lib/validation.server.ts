@@ -1,10 +1,10 @@
 /**
- * Manages CartGuard's checkout rule (a Shopify Validation that runs the
- * cartguard-validator Function), so merchants don't have to switch it on by
+ * Manages CartFence's checkout rule (a Shopify Validation that runs the
+ * cartfence-validator Function), so merchants don't have to switch it on by
  * hand and so the Function receives its input query variables.
  *
  * `shopifyFunctions` lists the functions of every installed app, so
- * candidates are filtered by this app's client ID (appKey). CartGuard never
+ * candidates are filtered by this app's client ID (appKey). CartFence never
  * creates or edits a validation for another app's function.
  */
 
@@ -17,8 +17,10 @@ import {
   friendlyErrorMessage,
 } from "./admin-api.server";
 
+// Kept from the app's former name (CartGuard): changing a Function handle
+// makes Shopify treat it as a new Function and breaks existing validations.
 const FUNCTION_HANDLE = "cartguard-validator";
-const FUNCTION_TITLE = "CartGuard Validator";
+const FUNCTION_TITLE = "CartFence Validator";
 
 export type ValidationStatus = {
   state: "active" | "inactive" | "missing" | "function_not_deployed" | "unknown";
@@ -26,7 +28,7 @@ export type ValidationStatus = {
 };
 
 const STATE_QUERY = `#graphql
-  query CartGuardValidationState {
+  query CartFenceValidationState {
     shopifyFunctions(first: 50) {
       nodes { id title apiType appKey }
     }
@@ -37,7 +39,7 @@ const STATE_QUERY = `#graphql
 `;
 
 const CREATE_MUTATION = `#graphql
-  mutation CartGuardValidationCreate($validation: ValidationCreateInput!) {
+  mutation CartFenceValidationCreate($validation: ValidationCreateInput!) {
     validationCreate(validation: $validation) {
       validation { id }
       userErrors { field message }
@@ -46,7 +48,7 @@ const CREATE_MUTATION = `#graphql
 `;
 
 const UPDATE_MUTATION = `#graphql
-  mutation CartGuardValidationUpdate($id: ID!, $validation: ValidationUpdateInput!) {
+  mutation CartFenceValidationUpdate($id: ID!, $validation: ValidationUpdateInput!) {
     validationUpdate(id: $id, validation: $validation) {
       validation { id enabled blockOnFailure }
       userErrors { field message }
@@ -97,7 +99,7 @@ export async function getValidationStatus(admin: AdminApi): Promise<ValidationSt
     return { state: validation.enabled ? "active" : "inactive" };
   } catch (error) {
     if (error instanceof Response) throw error;
-    console.warn("[CartGuard] Could not read checkout rule status:", errorMessage(error));
+    console.warn("[CartFence] Could not read checkout rule status:", errorMessage(error));
     return { state: "unknown", message: friendlyErrorMessage(error) };
   }
 }
@@ -136,9 +138,9 @@ export async function ensureValidationEnabled(admin: AdminApi): Promise<string> 
   const { fn, validation } = await loadState(admin);
   if (!fn) {
     // Developer detail stays in the logs; merchants get actionable copy.
-    console.error("[CartGuard] cartguard-validator Function not found for this shop. Run `shopify app deploy`.");
+    console.error("[CartFence] cartfence-validator Function not found for this shop. Run `shopify app deploy`.");
     throw new MerchantFacingError(
-      "CartGuard's checkout protection isn't installed on your store yet. Wait a few minutes and save again. If it keeps happening, reinstall CartGuard or contact support@cartguard.io.",
+      "CartFence's checkout protection isn't installed on your store yet. Wait a few minutes and save again. If it keeps happening, reinstall CartFence or contact support@cartfence.io.",
     );
   }
   if (!validation) return createValidation(admin, fn.id);

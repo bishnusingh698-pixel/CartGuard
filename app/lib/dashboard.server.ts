@@ -6,9 +6,9 @@
 import { authenticate } from "../shopify.server";
 import type { AdminApi } from "./admin-api.server";
 import { canUseMockAdmin, createMockAdmin } from "./admin-mock.server";
-import { effectiveRaw, parseConfig, readConfiguration } from "./cartguard.server";
+import { effectiveRaw, parseConfig, readConfiguration } from "./cartfence.server";
 import { type ValidationStatus, getValidationStatus } from "./validation.server";
-import type { RuleConfig } from "../../extensions/cartguard-validator/src/rules";
+import type { RuleConfig } from "../../extensions/cartfence-validator/src/rules";
 
 export type RulesState = {
   config: RuleConfig;

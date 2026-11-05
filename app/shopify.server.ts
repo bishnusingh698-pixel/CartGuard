@@ -21,7 +21,7 @@ function getEnv(name: string, devFallback: string): string {
   const value = process.env[name]?.trim();
   if (value) return value;
   if (isProduction) {
-    throw new Error(`[CartGuard] Missing required environment variable ${name}. Refusing to start in production.`);
+    throw new Error(`[CartFence] Missing required environment variable ${name}. Refusing to start in production.`);
   }
   return devFallback;
 }
@@ -41,8 +41,8 @@ const futureFlags = {
 const configuredScopes = process.env.SCOPES?.split(",").map((scope) => scope.trim()).filter(Boolean);
 
 const shopify = shopifyApp({
-  apiKey: getEnv("SHOPIFY_API_KEY", "cartguard-dev-api-key"),
-  apiSecretKey: getEnv("SHOPIFY_API_SECRET", "cartguard-dev-api-secret"),
+  apiKey: getEnv("SHOPIFY_API_KEY", "cartfence-dev-api-key"),
+  apiSecretKey: getEnv("SHOPIFY_API_SECRET", "cartfence-dev-api-secret"),
   apiVersion: API_VERSION,
   scopes: configuredScopes && configuredScopes.length > 0 ? configuredScopes : DEFAULT_SCOPES,
   appUrl: getEnv("SHOPIFY_APP_URL", "http://localhost:3000"),

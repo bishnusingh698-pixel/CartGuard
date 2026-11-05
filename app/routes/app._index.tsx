@@ -1,5 +1,5 @@
 /**
- * CartGuard Overview: is checkout protected, which block rules are on, and
+ * CartFence Overview: is checkout protected, which block rules are on, and
  * where to go next.
  */
 
@@ -27,7 +27,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 /** Sections that stop orders. Trusted customers only make exceptions. */
 const BLOCKING_SECTIONS: RuleSection[] = ["geo", "address", "quantity", "email"];
 
-const SUPPORT_EMAIL = "support@cartguard.io";
+const SUPPORT_EMAIL = "support@cartfence.io";
 
 const SECTION_PHRASE_KEY: Record<RuleSection, MessageKey> = {
   geo: "overview.phrase.geo",
@@ -147,7 +147,7 @@ function renderLinkedHelp(body: string, t: TFn): ReactNode[] {
   const parts = body.split(/(\{link\}|\{email\})/g).filter(Boolean);
   return parts.map((part, index) => {
     if (part === "{link}") return <Link key={index} url="/app/settings#how-it-works">{t("overview.help.link")}</Link>;
-    if (part === "{email}") return <Link key={index} url="mailto:support@cartguard.io">{SUPPORT_EMAIL}</Link>;
+    if (part === "{email}") return <Link key={index} url="mailto:support@cartfence.io">{SUPPORT_EMAIL}</Link>;
     return <Fragment key={index}>{part}</Fragment>;
   });
 }

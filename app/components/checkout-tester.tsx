@@ -9,7 +9,7 @@ import { Banner, BlockStack, Button, Checkbox, InlineGrid, InlineStack, List, Se
 
 import { useI18n } from "../i18n/context";
 import type { Option } from "../lib/regions";
-import { evaluateCart, type RuleConfig, type Violation } from "../../extensions/cartguard-validator/src/rules";
+import { evaluateCart, type RuleConfig, type Violation } from "../../extensions/cartfence-validator/src/rules";
 
 export type TesterInput = {
   countryCode: string;

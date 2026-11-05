@@ -11,7 +11,7 @@ import {
   type CartInput,
   type QuantityLimit,
   type RuleConfig,
-} from "../extensions/cartguard-validator/src/rules";
+} from "../extensions/cartfence-validator/src/rules";
 
 const ALL_ON = { enable_vip: true, enable_po_box: true, enable_quantity: true, enable_geo: true };
 const PID = "gid://shopify/Product/1";

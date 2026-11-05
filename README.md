@@ -1,8 +1,15 @@
-# CartGuard
+# CartFence
 
 Blocks risky carts at checkout. A Shopify Function evaluates the rules inside
 Shopify, and a Remix admin lets the merchant configure them and preview the
 effect on recent orders before saving.
+
+> **Formerly CartGuard.** A few identifiers keep the old name on purpose, because
+> changing them would break stores that already have the app installed: the
+> metafield namespace (`$app:cartguard`, plus the legacy `cartguard`), the
+> Function handle (`cartguard-validator`), the Render service name and its
+> `cartguard-co1f.onrender.com` URL, and two browser storage keys for the setup
+> guide. Everything merchants see says CartFence.
 
 ## What merchants can block
 
@@ -74,7 +81,7 @@ npm run deploy           # shopify app deploy, app config and Function
 Function tasks:
 
 ```bash
-npm run function:schema    # refresh extensions/cartguard-validator/schema.graphql
+npm run function:schema    # refresh extensions/cartfence-validator/schema.graphql
 npm run function:typegen   # regenerate Function input types
 npm run function:build     # build the Function to wasm
 ```
@@ -82,7 +89,7 @@ npm run function:build     # build the Function to wasm
 ## Layout
 
 - `app/` — Remix admin: routes, components, i18n, server libs
-- `extensions/cartguard-validator/src/rules.ts` — the rule engine. Imported by
+- `extensions/cartfence-validator/src/rules.ts` — the rule engine. Imported by
   the Function and by the admin, so the order preview and the live checkout
   apply identical rules
 - `prisma/` — schema and migrations for session and preference storage

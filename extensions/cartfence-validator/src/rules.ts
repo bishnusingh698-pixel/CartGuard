@@ -1,8 +1,8 @@
 /**
- * CartGuard rule engine.
+ * CartFence rule engine.
  *
  * Shared by the checkout Function (src/run.ts) and the admin Impact Checker
- * (app/lib/cartguard.server.ts) so both always evaluate rules identically.
+ * (app/lib/cartfence.server.ts) so both always evaluate rules identically.
  * Pure TypeScript: no imports and no I/O, so it runs the same in the Shopify
  * Functions (Javy) runtime and in Node.
  *
@@ -32,7 +32,7 @@
 
 export const FEATURE_FLAGS = ["enable_vip", "enable_po_box", "enable_quantity", "enable_geo", "enable_email"] as const;
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number];
-export type CartGuardSettings = Record<FeatureFlag, boolean>;
+export type CartFenceSettings = Record<FeatureFlag, boolean>;
 
 export type RegexRule = {
   pattern: string;
@@ -94,7 +94,7 @@ export type EmailBlocklist = {
 };
 
 export type RuleConfig = {
-  settings: CartGuardSettings;
+  settings: CartFenceSettings;
   regexRules: RegexRule[];
   quantityLimits: Record<string, QuantityLimit>;
   geoBlocklist: GeoBlocklist;
@@ -438,9 +438,9 @@ export function isRiskyPattern(pattern: string): boolean {
 
 /* Config parsing (tolerant) */
 
-export function parseSettings(raw: unknown): CartGuardSettings {
+export function parseSettings(raw: unknown): CartFenceSettings {
   const parsed = parseJson(raw);
-  const settings = {} as CartGuardSettings;
+  const settings = {} as CartFenceSettings;
   for (const flag of FEATURE_FLAGS) {
     settings[flag] = isRecord(parsed) && parsed[flag] === true;
   }

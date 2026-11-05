@@ -66,18 +66,18 @@ export function friendlyErrorMessage(error: unknown): string {
     return "Shopify is handling a lot of requests from your store right now. Wait a minute and try again.";
   }
   if (/not approved to (access|use)|protected customer data/.test(detail)) {
-    return "CartGuard hasn't been approved by Shopify to read order details yet, so it can't test your rules on past orders. Your rules still work at checkout.";
+    return "CartFence hasn't been approved by Shopify to read order details yet, so it can't test your rules on past orders. Your rules still work at checkout.";
   }
   if (/max cost limit|exceeds the single query/.test(detail)) {
-    return "Your recent orders were too large to check in one go. Try again in a moment. If it keeps happening, contact support@cartguard.io.";
+    return "Your recent orders were too large to check in one go. Try again in a moment. If it keeps happening, contact support@cartfence.io.";
   }
   if (/access denied|access scope|\b401\b|\b403\b/.test(detail)) {
-    return "CartGuard doesn't have the permission it needs. Open CartGuard from your Shopify admin, approve any requested permissions, then try again.";
+    return "CartFence doesn't have the permission it needs. Open CartFence from your Shopify admin, approve any requested permissions, then try again.";
   }
   if (/timeout|timed out|econnreset|fetch failed|socket|\b50[234]\b/.test(detail)) {
     return "Shopify didn't respond in time. Check your connection and try again in a moment.";
   }
-  return "Something went wrong while talking to Shopify. Try again in a moment. If it keeps happening, contact support@cartguard.io.";
+  return "Something went wrong while talking to Shopify. Try again in a moment. If it keeps happening, contact support@cartfence.io.";
 }
 
 export async function adminGraphql<T>(
@@ -113,7 +113,7 @@ export type MetafieldWrite = {
 };
 
 const METAFIELDS_SET_MUTATION = `#graphql
-  mutation CartGuardMetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+  mutation CartFenceMetafieldsSet($metafields: [MetafieldsSetInput!]!) {
     metafieldsSet(metafields: $metafields) {
       metafields { key }
       userErrors { field message }

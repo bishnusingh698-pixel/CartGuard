@@ -4,7 +4,7 @@
  * runtime's Intl data, so they match what merchants see elsewhere.
  */
 
-import { resolveCountryCode, splitCountryScope } from "../../extensions/cartguard-validator/src/rules";
+import { resolveCountryCode, splitCountryScope } from "../../extensions/cartfence-validator/src/rules";
 
 const COUNTRY_CODES_RAW =
   "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ " +
@@ -49,7 +49,7 @@ export function isCountryCode(value: string): boolean {
  * `locale` defaults to English so server-side callers keep working; the editor
  * passes the merchant's language so the dropdown reads in their language.
  * XK (Kosovo) is hardcoded because Intl does not carry it, and it is spelled the
- * same in every language CartGuard ships.
+ * same in every language CartFence ships.
  */
 export function countryName(code: string, locale = "en"): string {
   const upper = code.trim().toUpperCase();

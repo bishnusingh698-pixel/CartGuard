@@ -6,7 +6,7 @@ declare global {
 }
 
 function createPrismaMock() {
-  console.warn("[CartGuard] DATABASE_URL not set — using in-memory mock");
+  console.warn("[CartFence] DATABASE_URL not set — using in-memory mock");
   const inMemorySessions = new Map<string, any>();
   const sessionMock = {
     count: async () => inMemorySessions.size,
@@ -102,7 +102,7 @@ if (process.env.DATABASE_URL) {
 } else if (process.env.NODE_ENV === "production") {
   // The in-memory mock loses every offline token on restart and its lookups
   // aren't strictly scoped by shop, so it must never back a production app.
-  throw new Error("[CartGuard] DATABASE_URL is required in production. Sessions must be stored in a persistent database.");
+  throw new Error("[CartFence] DATABASE_URL is required in production. Sessions must be stored in a persistent database.");
 } else {
   prisma = createPrismaMock();
 }

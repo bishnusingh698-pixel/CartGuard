@@ -24,7 +24,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // A body that is not a form at all (a bare POST, or a JSON content type)
     // makes `formData()` reject. That is a malformed request, not a broken
     // app, so it gets a 400 rather than becoming a 500 ErrorBoundary.
-    console.error("[CartGuard] Rejected a language request with an unreadable body:", error);
+    console.error("[CartFence] Rejected a language request with an unreadable body:", error);
     return json({ ok: false as const, error: "malformed" }, { status: 400 });
   }
 
@@ -44,7 +44,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // with an error page; the picker and the Settings selector both surface
     // this response as an inline "could not save" message with the merchant's
     // selection intact, which is recoverable and keeps the app usable.
-    console.error("[CartGuard] Could not save the language preference:", error);
+    console.error("[CartFence] Could not save the language preference:", error);
     return json({ ok: false as const, error: "save-failed" }, { status: 200 });
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADDRESS_PRESETS, type RuleConfig } from "../extensions/cartguard-validator/src/rules";
+import { ADDRESS_PRESETS, type RuleConfig } from "../extensions/cartfence-validator/src/rules";
 import {
   KEYWORD_MESSAGE,
   configFromEditor,
@@ -13,7 +13,7 @@ import {
   parseZip,
   validateEditor,
 } from "../app/lib/rule-editor";
-import { validateRuleConfig } from "../app/lib/cartguard.server";
+import { validateRuleConfig } from "../app/lib/cartfence.server";
 import { describeScopedEntry, describeStateEntry, findCountry } from "../app/lib/regions";
 
 const ALL_ON = { enable_vip: true, enable_po_box: true, enable_quantity: true, enable_geo: true };

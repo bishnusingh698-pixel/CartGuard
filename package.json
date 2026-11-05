@@ -1,5 +1,5 @@
 {
-  "name": "cartguard",
+  "name": "cartfence",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -17,10 +17,10 @@
     "shopify": "shopify",
     "predeploy": "npm run function:install",
     "deploy": "shopify app deploy",
-    "function:install": "npm --prefix extensions/cartguard-validator install",
-    "function:schema": "shopify app function schema --path extensions/cartguard-validator",
-    "function:typegen": "shopify app function typegen --path extensions/cartguard-validator",
-    "function:build": "shopify app function build --path extensions/cartguard-validator"
+    "function:install": "npm --prefix extensions/cartfence-validator install",
+    "function:schema": "shopify app function schema --path extensions/cartfence-validator",
+    "function:typegen": "shopify app function typegen --path extensions/cartfence-validator",
+    "function:build": "shopify app function build --path extensions/cartfence-validator"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0",

@@ -28,7 +28,7 @@ import {
 } from "../app/i18n/catalog";
 import { COUNTRY_CODES, countryName, getCountryOptions } from "../app/lib/regions";
 import { summarizeSections } from "../app/lib/rule-summary";
-import type { RuleConfig } from "../extensions/cartguard-validator/src/rules";
+import type { RuleConfig } from "../extensions/cartfence-validator/src/rules";
 
 /** Placeholders a translated string must keep, e.g. `{count}`. */
 const placeholders = (template: string) => [...String(template).matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();

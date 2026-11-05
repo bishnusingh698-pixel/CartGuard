@@ -1,5 +1,5 @@
 /**
- * CartGuard Validator: Shopify Function entrypoint.
+ * CartFence Validator: Shopify Function entrypoint.
  *
  * Target : cart.validations.generate.run (API 2026-07)
  * Export : `run` (pinned by [[extensions.targeting]].export)
@@ -11,7 +11,7 @@
  * All rule logic lives in src/rules.ts, which the admin Impact Checker also
  * uses, so checkout and the simulator can never drift apart.
  *
- * Fail-open: any unexpected error returns zero validation errors, so CartGuard
+ * Fail-open: any unexpected error returns zero validation errors, so CartFence
  * can never break checkout. The validation is also created with
  * blockOnFailure = false.
  *
