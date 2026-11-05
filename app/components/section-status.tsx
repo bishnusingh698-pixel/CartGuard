@@ -27,8 +27,14 @@ function detailText(detail: SummaryDetail, language: Language): string {
     const names = formatList(language, detail.values);
     return detail.more === undefined ? names : t("summary.moreWith", { names, count: formatNumber(language, detail.more) });
   }
-  if (detail.count === undefined) return t(detail.key);
-  return plural(language, { one: t(`${detail.key}.one` as MessageKey), other: t(`${detail.key}.other` as MessageKey) }, detail.count);
+  if (detail.count === undefined) return t(detail.key, detail.params);
+  // The catalog stores the singular under the key itself and the plural under
+  // `<key>.other`. A key with no plural form (like "{count} more") uses the
+  // same text for both.
+  const one = translate(language, detail.key);
+  const otherKey = `${detail.key}.other`;
+  const otherText = translate(language, otherKey as MessageKey);
+  return plural(language, { one, other: otherText === otherKey ? one : otherText }, detail.count);
 }
 
 export function useSectionStatusText(summary: SectionSummary): string {

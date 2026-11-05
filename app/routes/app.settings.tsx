@@ -81,6 +81,7 @@ const DECISION_STEPS = [
   "settings.how.step3",
   "settings.how.step4",
   "settings.how.step5",
+  "settings.how.step6",
 ] as const;
 
 export default function SettingsPage() {

@@ -4,6 +4,22 @@ Blocks risky carts at checkout. A Shopify Function evaluates the rules inside
 Shopify, and a Remix admin lets the merchant configure them and preview the
 effect on recent orders before saving.
 
+## What merchants can block
+
+- Countries, states, cities and postal codes
+- Addresses: PO Boxes, US military addresses, a missing house or building
+  number, blocked words and specific streets
+- Order quantities: minimum and maximum units per product, pack sizes
+  ("sold in packs of 6") and minimum or maximum order value
+- Email addresses: blocked email domains and well-known throwaway email
+  services. Only domains are stored, never a customer's email
+- Trusted customers skip the rules above, except blocked countries
+
+The admin has three pages in order of use: Overview (status and a three-step
+setup guide), Block rules (a step list, links to every section, templates
+and a "Try a checkout" tester that runs unsaved rules on a typed address and
+email) and Order check (the saved rules run on recent orders).
+
 ## Requirements
 
 - Node 20 or newer

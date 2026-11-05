@@ -13,6 +13,7 @@ import { Badge, Banner, BlockStack, Button, Card, Divider, InlineGrid, InlineSta
 import { useI18n } from "../i18n/context";
 import type { MessageKey } from "../i18n/catalog";
 import { SectionBadge, useSectionStatusText } from "../components/section-status";
+import { SetupGuide } from "../components/setup-guide";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { RULE_SECTIONS, SECTION_META, SECTION_TITLE_KEY, type RuleSection, type SectionSummary, summarizeSections } from "../lib/rule-summary";
 
@@ -24,7 +25,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 /** Sections that stop orders. Trusted customers only make exceptions. */
-const BLOCKING_SECTIONS: RuleSection[] = ["geo", "address", "quantity"];
+const BLOCKING_SECTIONS: RuleSection[] = ["geo", "address", "quantity", "email"];
 
 const SUPPORT_EMAIL = "support@cartguard.io";
 
@@ -32,6 +33,7 @@ const SECTION_PHRASE_KEY: Record<RuleSection, MessageKey> = {
   geo: "overview.phrase.geo",
   address: "overview.phrase.address",
   quantity: "overview.phrase.quantity",
+  email: "overview.phrase.email",
   vip: "overview.phrase.vip",
 };
 
@@ -155,6 +157,8 @@ export default function OverviewPage() {
   const state = useLoaderData<typeof loader>() as unknown as RulesState;
   const summaries = useMemo(() => summarizeSections(state.config, language), [state.config, language]);
   const hero = heroFor(state, summaries, t, list);
+  const hasRules = BLOCKING_SECTIONS.some((section) => summaries[section].enabled && !summaries[section].empty);
+  const protectionOn = state.validation.state === "active" && !state.needsMigration;
 
   return (
     <Page
@@ -184,6 +188,10 @@ export default function OverviewPage() {
               )}
             </InlineGrid>
           </Card>
+        </Layout.Section>
+
+        <Layout.Section variant="fullWidth">
+          <SetupGuide hasRules={hasRules} protectionOn={protectionOn} />
         </Layout.Section>
 
         <Layout.Section>
