@@ -1,5 +1,5 @@
 /**
- * CartGuard webhook handler (app/uninstalled, app/scopes_update and the three
+ * CartFence webhook handler (app/uninstalled, app/scopes_update and the three
  * mandatory compliance topics). Subscriptions are declared in shopify.app.toml.
  *
  * - Invalid HMAC: authenticate.webhook throws a 401 Response, returned as-is.
@@ -24,7 +24,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         // Idempotent, so retries are safe.
         await db.session.deleteMany({ where: { shop } });
         await db.shopPreference.deleteMany({ where: { shop } });
-        console.log(`[webhooks] ${shop} uninstalled CartGuard; sessions and preferences deleted.`);
+        console.log(`[webhooks] ${shop} uninstalled CartFence; sessions and preferences deleted.`);
         break;
       }
 

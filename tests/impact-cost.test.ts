@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { simulateImpact, simulateOrders } from "../app/lib/cartguard.server";
-import { parseConfig } from "../extensions/cartguard-validator/src/rules";
+import { simulateImpact, simulateOrders } from "../app/lib/cartfence.server";
+import { parseConfig } from "../extensions/cartfence-validator/src/rules";
 
 const config = parseConfig({
   settings: JSON.stringify({ enable_quantity: true }),

@@ -1,5 +1,5 @@
 /**
- * Form controls used to build CartGuard rules. One component language: every
+ * Form controls used to build CartFence rules. One component language: every
  * list of values is a text field or picker plus removable chips, validated as
  * the merchant adds each entry.
  */
@@ -380,7 +380,7 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
             </InlineGrid>
           ) : (
             <Select
-              id="cartguard-region"
+              id="cartfence-region"
               label={t("fields.states.stateOrProvince")}
               placeholder={t("fields.states.chooseOne")}
               options={regionOptions(country)}
@@ -399,7 +399,7 @@ export function RegionPicker({ label, values, onChange, error }: RegionPickerPro
           {t("fields.states.otherHelp")}
         </Text>
       )}
-      {shownError && <InlineError message={shownError} fieldID="cartguard-region" />}
+      {shownError && <InlineError message={shownError} fieldID="cartfence-region" />}
       <ChipList
         label={t("fields.states.listName")}
         values={values}

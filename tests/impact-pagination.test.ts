@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { simulateImpact, type RuleConfig } from "../app/lib/cartguard.server";
+import { simulateImpact, type RuleConfig } from "../app/lib/cartfence.server";
 
 const config = {
   settings: { enable_vip: true, enable_po_box: true, enable_quantity: true, enable_geo: true },

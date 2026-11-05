@@ -1,5 +1,5 @@
 /**
- * CartGuard Validator — module entrypoint.
+ * CartFence Validator — module entrypoint.
  *
  * The Shopify CLI's function pipeline bundles `src/index.ts` with esbuild and
  * compiles it to `dist/index.wasm` via Javy, so this file is the conventional

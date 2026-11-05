@@ -1,6 +1,6 @@
 /**
- * CartGuard settings: checkout protection status (with a way to switch it
- * back on), how CartGuard decides, and help.
+ * CartFence settings: checkout protection status (with a way to switch it
+ * back on), how CartFence decides, and help.
  */
 
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
@@ -12,7 +12,7 @@ import { useEffect } from "react";
 import { Badge, Banner, BlockStack, Button, Card, InlineStack, Layout, Link, List, Page, Text } from "@shopify/polaris";
 
 import { friendlyErrorMessage } from "../lib/admin-api.server";
-import { effectiveRaw, parseConfig, readConfiguration, writeFunctionConfiguration } from "../lib/cartguard.server";
+import { effectiveRaw, parseConfig, readConfiguration, writeFunctionConfiguration } from "../lib/cartfence.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { type ValidationStatus, ensureValidationEnabled } from "../lib/validation.server";
 import { useI18n } from "../i18n/context";
@@ -22,7 +22,7 @@ import type { MessageKey } from "../i18n/catalog";
 import { LanguageSetting } from "../components/language-picker";
 
 /** Shown as a mailto link, so it is a constant rather than a catalog string. */
-const SUPPORT_EMAIL = "support@cartguard.io";
+const SUPPORT_EMAIL = "support@cartfence.io";
 
 export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 
@@ -39,7 +39,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 type ActivateResponse = { ok: boolean; message?: string };
 
-/** Turns CartGuard's checkout rule on with the rules that are already saved. */
+/** Turns CartFence's checkout rule on with the rules that are already saved. */
 export async function action({ request }: ActionFunctionArgs) {
   const { admin } = await getAdmin(request);
   try {
@@ -49,7 +49,7 @@ export async function action({ request }: ActionFunctionArgs) {
     return json<ActivateResponse>({ ok: true });
   } catch (error) {
     if (error instanceof Response) throw error;
-    console.error("[CartGuard] Turning on checkout protection failed:", error);
+    console.error("[CartFence] Turning on checkout protection failed:", error);
     return json<ActivateResponse>({ ok: false, message: friendlyErrorMessage(error) }, { status: 500 });
   }
 }

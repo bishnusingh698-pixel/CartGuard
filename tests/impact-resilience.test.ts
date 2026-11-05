@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readConfiguration, simulateImpact, type RuleConfig } from "../app/lib/cartguard.server";
+import { readConfiguration, simulateImpact, type RuleConfig } from "../app/lib/cartfence.server";
 import { AdminApiError, friendlyErrorMessage } from "../app/lib/admin-api.server";
 
 const config = {

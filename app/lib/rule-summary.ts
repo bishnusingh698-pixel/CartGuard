@@ -9,7 +9,7 @@ import {
   type FeatureFlag,
   type QuantityLimit,
   type RuleConfig,
-} from "../../extensions/cartguard-validator/src/rules";
+} from "../../extensions/cartfence-validator/src/rules";
 import { countryName } from "./regions";
 import type { MessageKey } from "../i18n/catalog";
 

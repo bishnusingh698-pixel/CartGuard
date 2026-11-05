@@ -31,7 +31,7 @@ export default defineConfig({
     hmr: false,
     fs: {
       // The admin imports the shared rule engine from the Function source.
-      allow: ["app", "node_modules", "extensions/cartguard-validator/src"],
+      allow: ["app", "node_modules", "extensions/cartfence-validator/src"],
     },
   },
   plugins: [remix({ ignoredRouteFiles: ["**/.*"] }), tsconfigPaths()],

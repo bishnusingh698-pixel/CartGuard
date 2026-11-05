@@ -19,7 +19,7 @@ import type { Language } from "../i18n/locales";
 const DEMO_APP_BRIDGE_STUB = `
 if (!window.shopify) {
   window.shopify = {
-    toast: { show: function (msg) { console.log("[CartGuard demo toast]", msg); } },
+    toast: { show: function (msg) { console.log("[CartFence demo toast]", msg); } },
     environment: { embedded: false },
     config: { apiKey: "" }
   };

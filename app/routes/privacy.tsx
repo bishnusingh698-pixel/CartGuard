@@ -7,7 +7,7 @@ export const headers: HeadersFunction = () => ({
   "Cache-Control": "public, max-age=3600",
 });
 
-const SUPPORT_EMAIL = "support@cartguard.io";
+const SUPPORT_EMAIL = "support@cartfence.io";
 
 /**
  * Each GDPR bullet leads with an identifier the merchant recognises

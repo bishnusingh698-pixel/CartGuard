@@ -1,5 +1,5 @@
 /**
- * CartGuard server helpers for the admin app.
+ * CartFence server helpers for the admin app.
  *
  * - Configuration lives in app-owned shop metafields ($app:cartguard, type
  *   json). Other apps and staff can't edit them. Values saved by older builds
@@ -8,7 +8,7 @@
  * - Strict validation of the structured rules the editor submits (save-time
  *   quality gate; checkout stays fail-open).
  * - Impact Checker: simulates the rules on recent orders using the same rule
- *   engine as the checkout Function (extensions/cartguard-validator/src/rules.ts).
+ *   engine as the checkout Function (extensions/cartfence-validator/src/rules.ts).
  */
 
 import {
@@ -27,7 +27,7 @@ import {
   FEATURE_FLAGS,
   type AddressPreset,
   type CartAddress,
-  type CartGuardSettings,
+  type CartFenceSettings,
   type CartInput,
   type CartLineInput,
   type EmailBlocklist,
@@ -51,9 +51,9 @@ import {
   normalizeEmailDomain,
   normalizeText,
   parseConfig,
-} from "../../extensions/cartguard-validator/src/rules";
+} from "../../extensions/cartfence-validator/src/rules";
 
-export const CARTGUARD_NAMESPACE = "$app:cartguard";
+export const CARTFENCE_NAMESPACE = "$app:cartguard";
 export const LEGACY_NAMESPACE = "cartguard";
 export const METAFIELD_TYPE = "json";
 export const LEGACY_METAFIELD_TYPE = "single_line_text_field";
@@ -117,7 +117,7 @@ export type ActionResponse = {
 /* Reading */
 
 const SETTINGS_QUERY = `#graphql
-  query CartGuardSettings {
+  query CartFenceSettings {
     shop {
       id
       current: metafields(namespace: "$app:cartguard", first: 25) { nodes { key value } }
@@ -292,7 +292,7 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
   const body = isRecord(input) ? input : {};
 
   const rawSettings = isRecord(body.settings) ? body.settings : {};
-  const settings = {} as CartGuardSettings;
+  const settings = {} as CartFenceSettings;
   for (const flag of FEATURE_FLAGS) settings[flag] = rawSettings[flag] === true;
 
   // Addresses
@@ -504,7 +504,7 @@ export async function writeShopConfiguration(admin: AdminApi, shopId: string, co
   const values = serializeConfig(config);
   await setMetafields(
     admin,
-    CONFIG_KEYS.map((key) => ({ ownerId: shopId, namespace: CARTGUARD_NAMESPACE, key, type: METAFIELD_TYPE, value: values[key] })),
+    CONFIG_KEYS.map((key) => ({ ownerId: shopId, namespace: CARTFENCE_NAMESPACE, key, type: METAFIELD_TYPE, value: values[key] })),
   );
 }
 
@@ -513,7 +513,7 @@ export async function writeFunctionConfiguration(admin: AdminApi, validationId: 
   await setMetafields(admin, [
     {
       ownerId: validationId,
-      namespace: CARTGUARD_NAMESPACE,
+      namespace: CARTFENCE_NAMESPACE,
       key: FUNCTION_CONFIG_KEY,
       type: METAFIELD_TYPE,
       value: JSON.stringify({ limitTags: collectLimitTags(config.quantityLimits) }),
@@ -522,7 +522,7 @@ export async function writeFunctionConfiguration(admin: AdminApi, validationId: 
 }
 
 const METAFIELDS_DELETE_MUTATION = `#graphql
-  mutation CartGuardDeleteLegacy($metafields: [MetafieldIdentifierInput!]!) {
+  mutation CartFenceDeleteLegacy($metafields: [MetafieldIdentifierInput!]!) {
     metafieldsDelete(metafields: $metafields) {
       deletedMetafields { key }
       userErrors { field message }
@@ -541,7 +541,7 @@ export async function deleteLegacyMetafields(admin: AdminApi, shopId: string): P
 }
 
 /**
- * Saves the rules, then makes sure CartGuard's checkout rule exists, is
+ * Saves the rules, then makes sure CartFence's checkout rule exists, is
  * enabled and has the tag list it needs. A failure in the second part doesn't
  * undo the save; it's returned as a warning for the merchant.
  */
@@ -555,7 +555,7 @@ export async function saveConfiguration(admin: AdminApi, config: RuleConfig): Pr
     await writeFunctionConfiguration(admin, validationId, config);
   } catch (error) {
     if (error instanceof Response) throw error;
-    console.error("[CartGuard] Rules saved but the checkout rule couldn't be activated:", errorMessage(error));
+    console.error("[CartFence] Rules saved but the checkout rule couldn't be activated:", errorMessage(error));
     validationWarning = friendlyErrorMessage(error);
   }
 
@@ -564,7 +564,7 @@ export async function saveConfiguration(admin: AdminApi, config: RuleConfig): Pr
       await deleteLegacyMetafields(admin, stored.shopId);
     } catch (error) {
       if (error instanceof Response) throw error;
-      console.warn("[CartGuard] Could not delete legacy metafields:", errorMessage(error));
+      console.warn("[CartFence] Could not delete legacy metafields:", errorMessage(error));
     }
   }
 
@@ -591,7 +591,7 @@ export const IMPACT_LINE_ITEMS = 20;
 // approves the app for them, asking for them fails the whole query, so the
 // checker retries without them and says which rules it couldn't test.
 const recentOrdersQuery = (includeCustomer: boolean) => `#graphql
-  query CartGuardRecentOrders($first: Int!, $after: String) {
+  query CartFenceRecentOrders($first: Int!, $after: String) {
     orders(first: $first, after: $after, reverse: true, sortKey: CREATED_AT) {
       pageInfo { hasNextPage endCursor }
       nodes {
@@ -751,7 +751,7 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
       });
     } catch (error) {
       if (error instanceof Response || !includeCustomer || !isProtectedDataError(error)) throw error;
-      console.warn("[CartGuard] Order emails and addresses withheld by Shopify, checking without them:", errorMessage(error));
+      console.warn("[CartFence] Order emails and addresses withheld by Shopify, checking without them:", errorMessage(error));
       includeCustomer = false;
       continue;
     }

@@ -1,5 +1,5 @@
 /**
- * The languages CartGuard ships in, and how one is chosen.
+ * The languages CartFence ships in, and how one is chosen.
  *
  * Codes match the ones Polaris uses in `@shopify/polaris/locales/*.json`, so a
  * single code drives both this app's catalog and Polaris's own component
@@ -64,7 +64,7 @@ const ALIASES: Record<string, Language> = Object.assign(Object.create(null) as R
 
 /**
  * Turns anything the admin, a URL or a browser might send us into a language
- * CartGuard actually has: "de-AT" and "de_AT" both become "de", and anything
+ * CartFence actually has: "de-AT" and "de_AT" both become "de", and anything
  * unknown falls back to English.
  */
 export function normalizeLanguage(raw: string | null | undefined): Language | null {

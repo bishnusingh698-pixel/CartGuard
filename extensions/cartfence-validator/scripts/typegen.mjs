@@ -11,7 +11,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 if (!existsSync(join(root, "schema.graphql"))) {
   console.warn(
-    "[cartguard-validator] schema.graphql not found, skipping type generation. " +
+    "[cartfence-validator] schema.graphql not found, skipping type generation. " +
       "Run `npm run function:schema` from the app root to download it.",
   );
   process.exit(0);

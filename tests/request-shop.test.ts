@@ -52,7 +52,7 @@ function asUnauthenticated() {
 }
 
 const request = (shop?: string) =>
-  new Request(shop ? `https://cartguard.app/app?shop=${shop}` : "https://cartguard.app/app");
+  new Request(shop ? `https://cartfence.app/app?shop=${shop}` : "https://cartfence.app/app");
 
 describe("readRequestShop", () => {
   beforeEach(() => {
@@ -141,7 +141,7 @@ describe("root and app loaders agree", () => {
     saved.set("session-only.myshopify.com", "ja");
     asSession("session-only.myshopify.com");
 
-    const { root, app } = await resolveBoth(new Request("https://cartguard.app/app"));
+    const { root, app } = await resolveBoth(new Request("https://cartfence.app/app"));
     expect(root.language).toBe("ja");
     expect(app.language).toBe(root.language);
   });
@@ -151,7 +151,7 @@ describe("root and app loaders agree", () => {
     asSession("embedded.myshopify.com");
 
     const { root, app } = await resolveBoth(
-      new Request("https://cartguard.app/app?shop=embedded.myshopify.com"),
+      new Request("https://cartfence.app/app?shop=embedded.myshopify.com"),
     );
     expect(root.language).toBe("de");
     expect(app.language).toBe("de");
@@ -160,7 +160,7 @@ describe("root and app loaders agree", () => {
   it("agrees when no preference is saved and the merchant is signed out", async () => {
     asUnauthenticated();
 
-    const { root, app } = await resolveBoth(new Request("https://cartguard.app/app"));
+    const { root, app } = await resolveBoth(new Request("https://cartfence.app/app"));
     expect(root.language).toBe(app.language);
   });
 
@@ -168,11 +168,11 @@ describe("root and app loaders agree", () => {
     saved.set("a.myshopify.com", "ja");
 
     asSession("a.myshopify.com");
-    expect((await resolveBoth(new Request("https://cartguard.app/app"))).root.language).toBe("ja");
+    expect((await resolveBoth(new Request("https://cartfence.app/app"))).root.language).toBe("ja");
 
     authenticateMock.mockReset();
     asSession("b.myshopify.com");
-    const other = await resolveBoth(new Request("https://cartguard.app/app"));
+    const other = await resolveBoth(new Request("https://cartfence.app/app"));
     expect(other.root.language).not.toBe("ja");
     expect(other.root.language).toBe("en");
   });

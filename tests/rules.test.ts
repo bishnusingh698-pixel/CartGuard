@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { run } from "../extensions/cartguard-validator/src/run";
+import { run } from "../extensions/cartfence-validator/src/run";
 import {
   ADDRESS_PRESETS,
   collectLimitTags,
@@ -9,8 +9,8 @@ import {
   type CartInput,
   type RegexRule,
   type RuleConfig,
-} from "../extensions/cartguard-validator/src/rules";
-import { simulateOrders, validateRuleConfig } from "../app/lib/cartguard.server";
+} from "../extensions/cartfence-validator/src/rules";
+import { simulateOrders, validateRuleConfig } from "../app/lib/cartfence.server";
 
 const ALL_ON = { enable_vip: true, enable_po_box: true, enable_quantity: true, enable_geo: true };
 

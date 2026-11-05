@@ -262,8 +262,8 @@ export function createMockAdmin(): AdminApi {
       const q = query.trim();
       const vars = options?.variables || {};
 
-      // 1. CartGuardSettings
-      if (q.includes("CartGuardSettings")) {
+      // 1. CartFenceSettings
+      if (q.includes("CartFenceSettings")) {
         const nodes = Array.from(mockMetafieldsStore.entries()).map(([key, value]) => ({
           key,
           value,
@@ -271,7 +271,7 @@ export function createMockAdmin(): AdminApi {
         const body = {
           data: {
             shop: {
-              id: "gid://shopify/Shop/cartguard-demo-shop",
+              id: "gid://shopify/Shop/cartfence-demo-shop",
               current: { nodes },
               legacy: { nodes: [] },
             },
@@ -283,28 +283,28 @@ export function createMockAdmin(): AdminApi {
         });
       }
 
-      // 2. CartGuardValidationState
-      if (q.includes("CartGuardValidationState")) {
+      // 2. CartFenceValidationState
+      if (q.includes("CartFenceValidationState")) {
         const body = {
           data: {
             shopifyFunctions: {
               nodes: [
                 {
-                  id: "gid://shopify/ShopifyFunction/cartguard-validator",
-                  title: "CartGuard Validator",
+                  id: "gid://shopify/ShopifyFunction/cartfence-validator",
+                  title: "CartFence Validator",
                   apiType: "validation",
-                  appKey: process.env.SHOPIFY_API_KEY || "cartguard-dev-api-key",
+                  appKey: process.env.SHOPIFY_API_KEY || "cartfence-dev-api-key",
                 },
               ],
             },
             validations: {
               nodes: [
                 {
-                  id: "gid://shopify/Validation/cartguard-validation-1",
+                  id: "gid://shopify/Validation/cartfence-validation-1",
                   enabled: true,
                   blockOnFailure: false,
                   shopifyFunction: {
-                    id: "gid://shopify/ShopifyFunction/cartguard-validator",
+                    id: "gid://shopify/ShopifyFunction/cartfence-validator",
                   },
                 },
               ],
@@ -317,8 +317,8 @@ export function createMockAdmin(): AdminApi {
         });
       }
 
-      // 3. CartGuardMetafieldsSet
-      if (q.includes("CartGuardMetafieldsSet")) {
+      // 3. CartFenceMetafieldsSet
+      if (q.includes("CartFenceMetafieldsSet")) {
         const metafields = (vars.metafields as Array<{ key: string; value: string }>) || [];
         for (const mf of metafields) {
           if (mf.key && mf.value) {
@@ -339,8 +339,8 @@ export function createMockAdmin(): AdminApi {
         });
       }
 
-      // 4. CartGuardRecentOrders
-      if (q.includes("CartGuardRecentOrders")) {
+      // 4. CartFenceRecentOrders
+      if (q.includes("CartFenceRecentOrders")) {
         const body = {
           data: {
             orders: {
@@ -356,11 +356,11 @@ export function createMockAdmin(): AdminApi {
       }
 
       // 5. Validation mutations
-      if (q.includes("CartGuardValidationCreate")) {
+      if (q.includes("CartFenceValidationCreate")) {
         const body = {
           data: {
             validationCreate: {
-              validation: { id: "gid://shopify/Validation/cartguard-validation-1" },
+              validation: { id: "gid://shopify/Validation/cartfence-validation-1" },
               userErrors: [],
             },
           },
@@ -371,12 +371,12 @@ export function createMockAdmin(): AdminApi {
         });
       }
 
-      if (q.includes("CartGuardValidationUpdate")) {
+      if (q.includes("CartFenceValidationUpdate")) {
         const body = {
           data: {
             validationUpdate: {
               validation: {
-                id: (vars.id as string) || "gid://shopify/Validation/cartguard-validation-1",
+                id: (vars.id as string) || "gid://shopify/Validation/cartfence-validation-1",
                 enabled: true,
                 blockOnFailure: false,
               },
@@ -391,7 +391,7 @@ export function createMockAdmin(): AdminApi {
       }
 
       // 6. Delete legacy
-      if (q.includes("CartGuardDeleteLegacy")) {
+      if (q.includes("CartFenceDeleteLegacy")) {
         const body = {
           data: {
             metafieldsDelete: {

@@ -1,18 +1,18 @@
 /**
- * GDPR helpers. The only customer personal data CartGuard handles is what a
+ * GDPR helpers. The only customer personal data CartFence handles is what a
  * merchant types into the VIP allowlist (emails and street addresses), which
  * is stored in the merchant's own shop metafields.
  */
 
 import { type AdminApi, adminGraphql, errorMessage, setMetafields } from "./admin-api.server";
 import {
-  CARTGUARD_NAMESPACE,
+  CARTFENCE_NAMESPACE,
   LEGACY_METAFIELD_TYPE,
   LEGACY_NAMESPACE,
   METAFIELD_TYPE,
   readConfiguration,
-} from "./cartguard.server";
-import { normalizeText, parseVipAllowlist } from "../../extensions/cartguard-validator/src/rules";
+} from "./cartfence.server";
+import { normalizeText, parseVipAllowlist } from "../../extensions/cartfence-validator/src/rules";
 
 export type CustomerPrivacyPayload = {
   customer?: { id?: number | string | null; email?: string | null } | null;
@@ -21,7 +21,7 @@ export type CustomerPrivacyPayload = {
 };
 
 const ORDER_ADDRESSES_QUERY = `#graphql
-  query CartGuardOrderAddresses($ids: [ID!]!) {
+  query CartFenceOrderAddresses($ids: [ID!]!) {
     nodes(ids: $ids) {
       ... on Order {
         shippingAddress { address1 }
@@ -84,7 +84,7 @@ export async function redactCustomerFromAllowlist(admin: AdminApi, payload: Cust
   const stored = await readConfiguration(admin);
 
   const targets = [
-    { raw: stored.current, namespace: CARTGUARD_NAMESPACE, type: METAFIELD_TYPE },
+    { raw: stored.current, namespace: CARTFENCE_NAMESPACE, type: METAFIELD_TYPE },
     { raw: stored.legacy, namespace: LEGACY_NAMESPACE, type: LEGACY_METAFIELD_TYPE },
   ];
 

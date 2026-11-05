@@ -1,5 +1,7 @@
 services:
   - type: web
+    # Service name and URL kept from the former name (CartGuard): renaming them
+    # would create a new Render service and break the live app URL.
     name: cartguard
     runtime: node
     # Free plan: keep an external pinger hitting /api/ping every 5-10 minutes

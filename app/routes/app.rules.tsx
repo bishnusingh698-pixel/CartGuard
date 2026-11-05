@@ -1,11 +1,11 @@
 /**
- * CartGuard block rules (Remix + Polaris).
+ * CartFence block rules (Remix + Polaris).
  *
  * - Every rule is built with form controls. Merchants never see code or raw
  *   data; the form state lives in app/lib/rule-editor.ts.
  * - Rules are stored in app-owned shop metafields ($app:cartguard, json).
- * - Saving also makes sure CartGuard's checkout rule (a Shopify Validation
- *   running the cartguard-validator Function) exists and is enabled.
+ * - Saving also makes sure CartFence's checkout rule (a Shopify Validation
+ *   running the cartfence-validator Function) exists and is enabled.
  * - "Test on recent orders" simulates the rules on recent orders with the
  *   same rule engine the checkout Function uses.
  * - The page opens with a three-step guide, links to every section and
@@ -47,7 +47,7 @@ import {
   saveConfiguration,
   simulateImpact,
   validateRuleConfig,
-} from "../lib/cartguard.server";
+} from "../lib/cartfence.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
 import { type ValidationStatus } from "../lib/validation.server";
 import { CountryPicker, ListField, RegionPicker } from "../components/rule-fields";
@@ -96,7 +96,7 @@ import {
   DISPOSABLE_EMAIL_DOMAINS,
   isRecord,
   type FeatureFlag,
-} from "../../extensions/cartguard-validator/src/rules";
+} from "../../extensions/cartfence-validator/src/rules";
 
 export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 
@@ -146,7 +146,7 @@ export async function action({ request }: ActionFunctionArgs) {
         impact = await simulateImpact(admin, config);
       } catch (error) {
         if (error instanceof Response) throw error;
-        console.warn("[CartGuard] Impact check failed before save:", errorMessage(error));
+        console.warn("[CartFence] Impact check failed before save:", errorMessage(error));
         return json<ActionResponse>({
           ok: true,
           needsConfirm: true,
@@ -162,7 +162,7 @@ export async function action({ request }: ActionFunctionArgs) {
     return json<ActionResponse>({ ok: true, saved: true, impact, validationWarning });
   } catch (error) {
     if (error instanceof Response) throw error;
-    console.error("[CartGuard] Rules action failed:", error);
+    console.error("[CartFence] Rules action failed:", error);
     return json<ActionResponse>(
       {
         ok: false,
@@ -723,7 +723,7 @@ export default function BlockRulesPage() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  // Moving to another CartGuard page (nav menu, links) would drop edits too.
+  // Moving to another CartFence page (nav menu, links) would drop edits too.
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname,
   );
@@ -759,7 +759,7 @@ export default function BlockRulesPage() {
     setPendingIntent(null);
     if (data.saved) {
       if (submittedState.current) setSaved(submittedState.current);
-      shopify?.toast?.show(data.validationWarning ? "Rules saved. Checkout protection needs attention." : "Rules saved. CartGuard is protecting checkout.");
+      shopify?.toast?.show(data.validationWarning ? "Rules saved. Checkout protection needs attention." : "Rules saved. CartFence is protecting checkout.");
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [fetcher.data, fetcher.state, shopify]);

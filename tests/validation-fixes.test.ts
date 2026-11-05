@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isValidStateEntry } from "../app/lib/regions";
 import { parseKeyword, parseRegionCode, parseZip } from "../app/lib/rule-editor";
 import { summarizeSections } from "../app/lib/rule-summary";
-import { validateRuleConfig } from "../app/lib/cartguard.server";
+import { validateRuleConfig } from "../app/lib/cartfence.server";
 
 describe("region codes", () => {
   it("accepts Shopify codes longer than 3 characters and with a space", () => {
