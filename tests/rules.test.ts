@@ -47,7 +47,7 @@ describe("address rules", () => {
   });
 
   it("no longer ships a freight forwarder preset", () => {
-    expect(Object.keys(ADDRESS_PRESETS)).toEqual(["po_box", "military"]);
+    expect(Object.keys(ADDRESS_PRESETS)).toEqual(["po_box", "military", "house_number"]);
     // An address mentioning forwarding is only blocked when the merchant adds
     // their own rule for it.
     expect(evaluateCart(cartAt({ address1: "Suite 400 Freight Forwarder Hub", countryCode: "US" }), config())).toHaveLength(0);

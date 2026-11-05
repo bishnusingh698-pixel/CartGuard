@@ -51,5 +51,6 @@ query RunInput($limitTags: [String!] = []) {
     quantity_limits: metafield(namespace: "$app:cartguard", key: "quantity_limits") { value }
     geo_blocklist: metafield(namespace: "$app:cartguard", key: "geo_blocklist") { value }
     vip_allowlist: metafield(namespace: "$app:cartguard", key: "vip_allowlist") { value }
+    email_blocklist: metafield(namespace: "$app:cartguard", key: "email_blocklist") { value }
   }
 }

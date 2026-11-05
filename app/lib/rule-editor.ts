@@ -21,6 +21,7 @@ import {
   PRODUCT_GID_PREFIX,
   compileRegex,
   isRiskyPattern,
+  normalizeEmailDomain,
   splitCountryScope,
   type CartGuardSettings,
   type QuantityLimit,
@@ -37,7 +38,7 @@ export const KEYWORD_MESSAGE = "Your delivery address contains words we can't sh
 /** Message older builds saved with specific-address rules. */
 const LEGACY_STREET_MESSAGE = "We can't deliver to this address. Please use a different delivery address.";
 
-export const BUILT_IN_CHECKS = ["po_box", "military"] as const;
+export const BUILT_IN_CHECKS = ["po_box", "military", "house_number"] as const;
 export type BuiltInCheck = (typeof BUILT_IN_CHECKS)[number];
 
 function isBuiltInCheck(preset: string | undefined): preset is BuiltInCheck {
@@ -72,6 +73,8 @@ export type LimitRow = {
   /** Order total bounds, in the shop currency, only used on "Every product" rows. */
   minAmount: string;
   maxAmount: string;
+  /** Pack size: units must be a multiple of this. Blank for none. */
+  multiple: string;
   message: string;
 };
 
@@ -87,6 +90,14 @@ export type EditorState = {
   limits: LimitRow[];
   vipEmails: string[];
   vipAddresses: string[];
+  /** Blocked email domains, such as "example.com". */
+  emailDomains: string[];
+  /** Block well-known throwaway email services. */
+  blockDisposable: boolean;
+  /** Custom buyer message for email rules, "" for the default. */
+  emailMessage: string;
+  /** Country the street number check is limited to, "" for every country. */
+  houseNumberCountry: string;
   /** Customer messages saved with built-in checks, kept so saving never resets them. */
   presetMessages: Partial<Record<BuiltInCheck | "keywords", string>>;
 };
@@ -99,7 +110,7 @@ export function newAddressRule(): AddressRuleRow {
 }
 
 export function newLimit(): LimitRow {
-  return { id: nextId("limit"), target: "tag", value: "", min: "", max: "", minAmount: "", maxAmount: "", message: "" };
+  return { id: nextId("limit"), target: "tag", value: "", min: "", max: "", minAmount: "", maxAmount: "", multiple: "", message: "" };
 }
 
 export function escapeRegex(value: string): string {
@@ -137,6 +148,7 @@ function limitToRow(key: string, limit: QuantityLimit): LimitRow {
     max: limit.max === undefined ? "" : String(limit.max),
     minAmount: limit.minAmount === undefined ? "" : String(limit.minAmount),
     maxAmount: limit.maxAmount === undefined ? "" : String(limit.maxAmount),
+    multiple: limit.multiple === undefined ? "" : String(limit.multiple),
     message: limit.message ?? "",
   };
   if (key === "*" || key.toLowerCase() === "all") return { ...base, target: "all", value: "" };
@@ -155,10 +167,12 @@ export function editorFromConfig(config: RuleConfig): EditorState {
 
   const checks = {} as Record<BuiltInCheck, boolean>;
   const presetMessages: EditorState["presetMessages"] = {};
+  let houseNumberCountry = "";
   for (const check of BUILT_IN_CHECKS) {
     const rule = claim(check);
     checks[check] = Boolean(rule);
     if (rule?.message && rule.message !== ADDRESS_PRESETS[check].message) presetMessages[check] = rule.message;
+    if (check === "house_number" && rule?.country) houseNumberCountry = findCountry(rule.country) ?? rule.country.toUpperCase();
   }
   const keywordRule = claim("keywords", (rule) => (rule.keywords?.length ?? 0) > 0);
   if (keywordRule?.message && keywordRule.message !== KEYWORD_MESSAGE) presetMessages.keywords = keywordRule.message;
@@ -183,6 +197,10 @@ export function editorFromConfig(config: RuleConfig): EditorState {
     limits: Object.entries(config.quantityLimits).map(([key, limit]) => limitToRow(key, limit)),
     vipEmails: config.vipAllowlist.filter((entry) => entry.includes("@")),
     vipAddresses: config.vipAllowlist.filter((entry) => !entry.includes("@")),
+    emailDomains: [...(config.emailBlocklist?.domains ?? [])],
+    blockDisposable: config.emailBlocklist?.blockDisposable ?? false,
+    emailMessage: config.emailBlocklist?.message ?? "",
+    houseNumberCountry,
     presetMessages,
   };
 }
@@ -214,11 +232,12 @@ export function configFromEditor(state: EditorState): RuleConfig {
   for (const check of BUILT_IN_CHECKS) {
     if (!state.checks[check]) continue;
     const preset = ADDRESS_PRESETS[check];
+    const country = check === "house_number" ? state.houseNumberCountry || undefined : preset.country;
     regexRules.push({
       preset: check,
       pattern: preset.pattern,
       message: state.presetMessages[check] ?? preset.message,
-      ...(preset.country ? { country: preset.country } : {}),
+      ...(country ? { country } : {}),
     });
   }
   if (state.keywords.length > 0) {
@@ -246,9 +265,11 @@ export function configFromEditor(state: EditorState): RuleConfig {
     // reported by validateEditor instead of being half-saved.
     const minAmount = row.target === "all" ? readAmount(row.minAmount) : undefined;
     const maxAmount = row.target === "all" ? readAmount(row.maxAmount) : undefined;
-    if (min === null || max === null || minAmount === null || maxAmount === null) continue;
+    const multiple = readPackSize(row.multiple);
+    if (min === null || max === null || minAmount === null || maxAmount === null || multiple === null) continue;
     if (min !== undefined) limit.min = min;
     if (max !== undefined) limit.max = max;
+    if (multiple !== undefined) limit.multiple = multiple;
     if (minAmount !== undefined) limit.minAmount = minAmount;
     if (maxAmount !== undefined) limit.maxAmount = maxAmount;
     const message = row.message.trim();
@@ -266,7 +287,19 @@ export function configFromEditor(state: EditorState): RuleConfig {
       states: [...state.states],
     },
     vipAllowlist: [...state.vipEmails, ...state.vipAddresses],
+    emailBlocklist: {
+      domains: [...state.emailDomains],
+      blockDisposable: state.blockDisposable,
+      ...(state.emailMessage.trim() ? { message: state.emailMessage.trim() } : {}),
+    },
   };
+}
+
+/** Pack size typed in a limit row: a whole number of at least 2, or undefined when blank. */
+function readPackSize(raw: string): number | undefined | null {
+  const units = readUnits(raw);
+  if (units === undefined || units === null) return units;
+  return units >= 2 ? units : null;
 }
 
 /**
@@ -342,6 +375,16 @@ export function parseVipEmail(raw: string): ParseResult {
   return EMAIL.test(value) && value.length <= 254 ? { value } : { error: `${quoted(raw)} isn't a valid email address.` };
 }
 
+export function parseEmailDomain(raw: string): ParseResult {
+  // A whole address is accepted for convenience, but only its domain is kept,
+  // so the list never stores a customer's email.
+  const text = raw.trim();
+  const at = text.lastIndexOf("@");
+  const domain = normalizeEmailDomain(at >= 0 ? text.slice(at + 1) : text);
+  if (!domain || domain.length > 253) return { error: `${quoted(raw)} isn't an email domain. Use a domain like example.com.` };
+  return { value: domain };
+}
+
 export function parseVipAddress(raw: string): ParseResult {
   const value = raw.trim().replace(/\s+/g, " ");
   if (value.includes("@")) return { error: "That looks like an email. Add it under trusted customer emails instead." };
@@ -384,6 +427,7 @@ export const LIST_FIELD_IDS = {
   keywords: "address.keywords",
   vipEmails: "vip.emails",
   vipAddresses: "vip.addresses",
+  emailDomains: "email.domains",
 } as const;
 
 export type EditorErrors = {
@@ -394,7 +438,7 @@ export type EditorErrors = {
 };
 
 export function validateEditor(state: EditorState): EditorErrors {
-  const errors: EditorErrors = { fields: {}, bySection: { geo: 0, address: 0, quantity: 0, vip: 0 }, total: 0 };
+  const errors: EditorErrors = { fields: {}, bySection: { geo: 0, address: 0, quantity: 0, email: 0, vip: 0 }, total: 0 };
   const add = (section: RuleSection, id: string, field: string, message: string) => {
     const bucket = (errors.fields[id] ??= {});
     if (bucket[field]) return;
@@ -418,6 +462,13 @@ export function validateEditor(state: EditorState): EditorErrors {
   checkList("address", LIST_FIELD_IDS.keywords, state.keywords, accepts(parseKeyword));
   checkList("vip", LIST_FIELD_IDS.vipEmails, state.vipEmails, accepts(parseVipEmail));
   checkList("vip", LIST_FIELD_IDS.vipAddresses, state.vipAddresses, accepts(parseVipAddress));
+  checkList("email", LIST_FIELD_IDS.emailDomains, state.emailDomains, accepts(parseEmailDomain));
+  if (state.emailMessage.length > MESSAGE_MAX_LENGTH) {
+    add("email", "email.message", "message", `Keep the message under ${MESSAGE_MAX_LENGTH} characters.`);
+  }
+  if (state.checks.house_number && state.houseNumberCountry && !isCountryCode(state.houseNumberCountry)) {
+    add("address", "address.houseNumber", "country", "Choose a country from the list.");
+  }
 
   for (const row of state.addressRules) {
     const text = row.text.trim();
@@ -441,7 +492,7 @@ export function validateEditor(state: EditorState): EditorErrors {
     const value = row.value.trim();
     const amountFields = row.target === "all" && (row.minAmount.trim() || row.maxAmount.trim());
     if (row.target !== "all" && !value) {
-      if (row.min.trim() || row.max.trim() || row.message.trim() || amountFields) {
+      if (row.min.trim() || row.max.trim() || row.multiple.trim() || row.message.trim() || amountFields) {
         add("quantity", row.id, "value", row.target === "tag" ? "Enter a product tag, or remove this limit." : "Enter a product ID, or remove this limit.");
       }
       continue;
@@ -463,8 +514,10 @@ export function validateEditor(state: EditorState): EditorErrors {
     if (min !== null && max !== null && min !== undefined && max !== undefined && min > max) {
       add("quantity", row.id, "min", "The minimum can't be more than the maximum.");
     }
-    if (min === undefined && max === undefined && !amountFields) {
-      add("quantity", row.id, "max", "Set a minimum, a maximum or an order amount. Remove this limit if you don't need it.");
+    const multiple = readPackSize(row.multiple);
+    if (multiple === null) add("quantity", row.id, "multiple", `Enter a whole number from 2 to ${formatNumber(MAX_UNITS)}, or leave it blank.`);
+    if (min === undefined && max === undefined && multiple === undefined && !amountFields) {
+      add("quantity", row.id, "max", "Set a minimum, a maximum, a pack size or an order amount. Remove this limit if you don't need it.");
     }
 
     if (row.target !== "all") {

@@ -13,7 +13,7 @@ import {
 import { countryName } from "./regions";
 import type { MessageKey } from "../i18n/catalog";
 
-export const RULE_SECTIONS = ["geo", "address", "quantity", "vip"] as const;
+export const RULE_SECTIONS = ["geo", "address", "quantity", "email", "vip"] as const;
 export type RuleSection = (typeof RULE_SECTIONS)[number];
 
 export type SectionMeta = { anchor: string; flag: FeatureFlag };
@@ -27,6 +27,7 @@ export const SECTION_TITLE_KEY = {
   geo: "section.geo.title",
   address: "section.address.title",
   quantity: "section.quantity.title",
+  email: "section.email.title",
   vip: "section.vip.title",
 } as const satisfies Record<RuleSection, MessageKey>;
 
@@ -45,6 +46,7 @@ export const SECTION_META: Record<RuleSection, SectionMeta> = {
   geo: { anchor: "countries-and-regions", flag: "enable_geo" },
   address: { anchor: "addresses", flag: "enable_po_box" },
   quantity: { anchor: "order-quantities", flag: "enable_quantity" },
+  email: { anchor: "email-addresses", flag: "enable_email" },
   vip: { anchor: "trusted-customers", flag: "enable_vip" },
 };
 
@@ -52,7 +54,14 @@ export const SECTION_META: Record<RuleSection, SectionMeta> = {
  * A summary detail as structured data rather than a finished sentence, so the
  * component that renders it can translate it. `count` drives plural selection.
  */
-export type SummaryDetail = { key: MessageKey; count?: number; values?: string[]; more?: number };
+export type SummaryDetail = {
+  key: MessageKey;
+  count?: number;
+  values?: string[];
+  more?: number;
+  /** Placeholder values for a detail without a count, such as a tag name. */
+  params?: Record<string, string>;
+};
 
 export type SectionSummary = { enabled: boolean; empty: boolean; details: SummaryDetail[] };
 
@@ -90,6 +99,7 @@ export function limitTargetLabel(key: string): string {
 const BUILT_IN_LABELS: Record<string, MessageKey> = {
   po_box: "summary.address.poBox",
   military: "summary.address.military",
+  house_number: "summary.address.houseNumber",
 };
 
 /** Catalog key for a quantity limit's target, for use in a summary line. */
@@ -117,6 +127,9 @@ export function limitRange(limit: QuantityLimit): string | null {
   }
   if (limit.maxAmount !== undefined && Number.isFinite(limit.maxAmount)) {
     parts.push(`orders up to ${formatNumber(limit.maxAmount)}`);
+  }
+  if (limit.multiple !== undefined && Number.isFinite(limit.multiple)) {
+    parts.push(`in packs of ${formatNumber(limit.multiple)}`);
   }
   return parts.length > 0 ? parts.join(", ") : null;
 }
@@ -153,7 +166,10 @@ export function summarizeSections(config: RuleConfig, locale = "en"): Record<Rul
 
   // Skip limits still being typed (no valid bound yet).
   const limits = Object.entries(quantityLimits).filter(([, limit]) => limitRange(limit) !== null);
-  const quantityDetails: SummaryDetail[] = limits.slice(0, 2).map(([key]) => ({ key: limitTargetMessage(key) }));
+  const quantityDetails: SummaryDetail[] = limits.slice(0, 2).map(([key]) => ({
+    key: limitTargetMessage(key),
+    params: { tag: key.trim(), id: key.trim().replace(PRODUCT_GID_PREFIX, "") },
+  }));
   if (limits.length > 2) quantityDetails.push({ key: "summary.more", count: limits.length - 2 });
 
   const emails = vipAllowlist.filter((entry) => entry.includes("@")).length;
@@ -161,6 +177,11 @@ export function summarizeSections(config: RuleConfig, locale = "en"): Record<Rul
   const vipDetails: SummaryDetail[] = [];
   if (emails > 0) vipDetails.push({ key: "summary.vip.emails", count: emails });
   if (addresses > 0) vipDetails.push({ key: "summary.vip.addresses", count: addresses });
+
+  const emailRules = config.emailBlocklist;
+  const emailDetails: SummaryDetail[] = [];
+  if (emailRules?.blockDisposable) emailDetails.push({ key: "summary.email.disposable" });
+  if (emailRules && emailRules.domains.length > 0) emailDetails.push({ key: "summary.email.domains", count: emailRules.domains.length });
 
   const summary = (enabled: boolean, details: SummaryDetail[]): SectionSummary => ({
     enabled,
@@ -171,6 +192,7 @@ export function summarizeSections(config: RuleConfig, locale = "en"): Record<Rul
     geo: summary(settings.enable_geo, geoDetails),
     address: summary(settings.enable_po_box, addressDetails),
     quantity: summary(settings.enable_quantity, quantityDetails),
+    email: summary(settings.enable_email, emailDetails),
     vip: summary(settings.enable_vip, vipDetails),
   };
 }

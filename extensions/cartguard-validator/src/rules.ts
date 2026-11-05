@@ -15,9 +15,12 @@
  *      address line 1 from the address rules (step 4).
  *   3. Quantity limits per product (by product tag, product ID or "all") and
  *      order amount limits, each with a minimum, a maximum or both.
- *   4. Address rules (PO Box, military, keywords, streets).
+ *   4. Address rules (PO Box, military, missing street number, keywords,
+ *      streets).
  *   5. ZIP / city / state-province blocklists. Entries can be limited to one
  *      country: "US:90210", "US:Austin", "US-WA".
+ *   6. Email rules: blocked email domains and throwaway (disposable) email
+ *      services.
  *
  * Hardening: address text is canonicalized before matching (NFKC folding,
  * invisible characters removed, accents stripped, length capped) so tricks
@@ -27,7 +30,7 @@
  * patterns are skipped, and unexpected errors produce no violations.
  */
 
-export const FEATURE_FLAGS = ["enable_vip", "enable_po_box", "enable_quantity", "enable_geo"] as const;
+export const FEATURE_FLAGS = ["enable_vip", "enable_po_box", "enable_quantity", "enable_geo", "enable_email"] as const;
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number];
 export type CartGuardSettings = Record<FeatureFlag, boolean>;
 
@@ -59,6 +62,8 @@ export type QuantityLimit = {
   minAmount?: number;
   /** Largest order total, in the shop currency, for the whole order. */
   maxAmount?: number;
+  /** Units must come in multiples of this ("sold in packs of 6"). 2 or more. */
+  multiple?: number;
   message?: string;
 };
 
@@ -75,12 +80,27 @@ export type GeoBlocklist = {
   states: string[];
 };
 
+/**
+ * Email rules. Only domains are stored, never full addresses, so the list
+ * holds no customer data.
+ */
+export type EmailBlocklist = {
+  /** Domains such as "example.com". Subdomains match too. */
+  domains: string[];
+  /** Also block the throwaway email services in DISPOSABLE_EMAIL_DOMAINS. */
+  blockDisposable: boolean;
+  /** Buyer-facing message. Falls back to DEFAULT_EMAIL_MESSAGE. */
+  message?: string;
+};
+
 export type RuleConfig = {
   settings: CartGuardSettings;
   regexRules: RegexRule[];
   quantityLimits: Record<string, QuantityLimit>;
   geoBlocklist: GeoBlocklist;
   vipAllowlist: string[];
+  /** Optional so configs built before email rules existed still evaluate. */
+  emailBlocklist?: EmailBlocklist;
 };
 
 /** Raw metafield values (stringified JSON), keyed by metafield key. */
@@ -90,6 +110,7 @@ export type RawConfig = {
   quantity_limits?: string | null;
   geo_blocklist?: string | null;
   vip_allowlist?: string | null;
+  email_blocklist?: string | null;
 };
 
 export type CartAddress = {
@@ -135,7 +156,7 @@ export type CartInput = {
   currencyRate?: number | null;
 };
 
-export type ViolationRule = "country" | "quantity" | "amount" | "address" | "zip" | "city" | "state";
+export type ViolationRule = "country" | "quantity" | "amount" | "address" | "zip" | "city" | "state" | "email";
 
 export type Violation = {
   rule: ViolationRule;
@@ -163,6 +184,27 @@ export const DEFAULT_ADDRESS_MESSAGE =
   "We can't deliver to this address. Please enter a different delivery address or contact us for help.";
 export const DEFAULT_GEO_MESSAGE =
   "We can't deliver to this area. Please choose a different delivery address or contact us for help.";
+export const DEFAULT_EMAIL_MESSAGE =
+  "We can't accept orders with this email address. Please use a different email address or contact us for help.";
+/** Most blocked email domains a shop can store. */
+export const MAX_EMAIL_DOMAINS = 500;
+
+/**
+ * Well-known throwaway email services. Kept short on purpose: every entry
+ * costs checkout instructions, and these few cover most throwaway sign-ups.
+ * Merchants add anything else as a blocked domain.
+ */
+export const DISPOSABLE_EMAIL_DOMAINS = [
+  "10minutemail.com", "10minutemail.net", "20minutemail.com", "33mail.com", "anonaddy.me", "burnermail.io",
+  "discard.email", "dispostable.com", "dropmail.me", "emailondeck.com", "fakeinbox.com", "getairmail.com",
+  "getnada.com", "guerrillamail.biz", "guerrillamail.com", "guerrillamail.de", "guerrillamail.info",
+  "guerrillamail.net", "guerrillamail.org", "guerrillamailblock.com", "harakirimail.com", "inboxkitten.com",
+  "jetable.org", "mailcatch.com", "maildrop.cc", "mailinator.com", "mailinator.net", "mailnesia.com",
+  "mailpoof.com", "mintemail.com", "moakt.com", "mohmal.com", "mytemp.email", "nada.email", "sharklasers.com",
+  "spam4.me", "spamgourmet.com", "temp-mail.io", "temp-mail.org", "tempail.com", "tempmail.dev",
+  "tempmail.net", "tempmailo.com", "tempr.email", "throwawaymail.com", "trashmail.com", "trashmail.de",
+  "trashmail.net", "yopmail.com", "yopmail.fr", "yopmail.net",
+] as const;
 
 /**
  * Separators allowed inside a written-out "PO Box". Hyphens matter: "PO-Box" and
@@ -215,6 +257,16 @@ export const ADDRESS_PRESETS = {
       "\\b(?:a\\.?\\s*p\\.?\\s*o\\.?|f\\.?\\s*p\\.?\\s*o\\.?|d\\.?\\s*p\\.?\\s*o\\.?)\\.?\\s*(?:\\d|[a-z]{2}\\b|box\\b|$)",
     message: "We can't deliver to military addresses (APO/FPO/DPO).",
     country: "US" as string | undefined,
+  },
+  house_number: {
+    label: "street number rule",
+    // Matches a street address with no digit anywhere. The engine runs it on
+    // address lines 1 and 2 together, so a number typed on line 2 still
+    // counts. Arabic-Indic and Devanagari digits count as numbers too;
+    // full-width digits are folded to ASCII before matching.
+    pattern: "^[^0-9\\u0660-\\u0669\\u06f0-\\u06f9\\u0966-\\u096f]*$",
+    message: "Please add your house or building number to the street address.",
+    country: undefined as string | undefined,
   },
 };
 export type AddressPreset = keyof typeof ADDRESS_PRESETS;
@@ -441,13 +493,15 @@ export function parseQuantityLimits(raw: unknown): Record<string, QuantityLimit>
       const max = readBound(value.max, 1, MAX_UNITS);
       const minAmount = readAmount(value.minAmount);
       const maxAmount = readAmount(value.maxAmount);
-      if (min === null || max === null || minAmount === null || maxAmount === null) continue;
+      const multiple = readBound(value.multiple, 2, MAX_UNITS);
+      if (min === null || max === null || minAmount === null || maxAmount === null || multiple === null) continue;
       if (min !== undefined && max !== undefined && min > max) continue;
       if (minAmount !== undefined && maxAmount !== undefined && minAmount > maxAmount) continue;
       if (min !== undefined) limit.min = min;
       if (max !== undefined) limit.max = max;
       if (minAmount !== undefined) limit.minAmount = minAmount;
       if (maxAmount !== undefined) limit.maxAmount = maxAmount;
+      if (multiple !== undefined) limit.multiple = multiple;
       if (typeof value.message === "string" && value.message.trim()) message = value.message.trim();
     } else {
       continue;
@@ -477,7 +531,7 @@ function readAmount(value: unknown): number | null | undefined {
 
 /** True when the stored object sets at least one bound the engine can use. */
 function readAnyBound(value: Record<string, unknown>): boolean {
-  return ["min", "max", "minAmount", "maxAmount"].some((field) => {
+  return ["min", "max", "minAmount", "maxAmount", "multiple"].some((field) => {
     const raw = value[field];
     if (raw === undefined || raw === null || raw === "") return false;
     return Number.isFinite(typeof raw === "string" ? Number(raw.replace(/[\s,]/g, "")) : Number(raw));
@@ -499,6 +553,25 @@ export function parseVipAllowlist(raw: unknown): string[] {
   return toStringList(parseJson(raw));
 }
 
+/** "@Example.COM." -> "example.com". Empty when the value isn't a domain. */
+export function normalizeEmailDomain(value: unknown): string {
+  const text = clean(value).toLowerCase().replace(/^@+/, "").replace(/\.+$/, "");
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(text) ? text : "";
+}
+
+export function parseEmailBlocklist(raw: unknown): EmailBlocklist {
+  const parsed = parseJson(raw);
+  if (!isRecord(parsed)) return { domains: [], blockDisposable: false };
+  const domains: string[] = [];
+  for (const entry of toStringList(parsed.domains).slice(0, MAX_EMAIL_DOMAINS)) {
+    const domain = normalizeEmailDomain(entry);
+    if (domain && !domains.includes(domain)) domains.push(domain);
+  }
+  const list: EmailBlocklist = { domains, blockDisposable: parsed.blockDisposable === true };
+  if (typeof parsed.message === "string" && parsed.message.trim()) list.message = parsed.message.trim();
+  return list;
+}
+
 export function parseConfig(raw: RawConfig): RuleConfig {
   return {
     settings: parseSettings(raw.settings),
@@ -506,6 +579,7 @@ export function parseConfig(raw: RawConfig): RuleConfig {
     quantityLimits: parseQuantityLimits(raw.quantity_limits),
     geoBlocklist: parseGeoBlocklist(raw.geo_blocklist),
     vipAllowlist: parseVipAllowlist(raw.vip_allowlist),
+    emailBlocklist: parseEmailBlocklist(raw.email_blocklist),
   };
 }
 
@@ -657,10 +731,15 @@ function evaluateQuantityLimits(cart: CartInput, limits: Record<string, Quantity
     // "every product" limit instead of one silently replacing the other.
     let max: { value: number; key: string; limit: QuantityLimit } | null = null;
     let min: { value: number; key: string; limit: QuantityLimit } | null = null;
+    // The largest pack size wins, the same "tightest rule" idea as min and max.
+    let multiple: { value: number; key: string; limit: QuantityLimit } | null = null;
     for (const [key, limit] of entries) {
       if (!limitMatches(key, productId, aggregate.tags)) continue;
       if (limit.max !== undefined && (max === null || limit.max < max.value)) max = { value: limit.max, key, limit };
       if (limit.min !== undefined && (min === null || limit.min > min.value)) min = { value: limit.min, key, limit };
+      if (limit.multiple !== undefined && limit.multiple > 1 && (multiple === null || limit.multiple > multiple.value)) {
+        multiple = { value: limit.multiple, key, limit };
+      }
     }
 
     const target = `$.cart.lines[${aggregate.firstIndex}].quantity`;
@@ -677,6 +756,15 @@ function evaluateQuantityLimits(cart: CartInput, limits: Record<string, Quantity
         message: min.limit.message || `You need at least ${min.value} of this item per order. Please increase the quantity or remove it to continue.`,
         target,
         detail: `${aggregate.quantity} units are below the minimum of ${min.value} for ${describeLimitKey(min.key)}`,
+      });
+    } else if (multiple && aggregate.quantity > 0 && aggregate.quantity % multiple.value !== 0) {
+      violations.push({
+        rule: "quantity",
+        message:
+          multiple.limit.message ||
+          `This item is sold in packs of ${multiple.value}. Please change the quantity to a multiple of ${multiple.value}.`,
+        target,
+        detail: `${aggregate.quantity} units aren't a multiple of ${multiple.value} for ${describeLimitKey(multiple.key)}`,
       });
     }
   }
@@ -780,6 +868,11 @@ type CompiledAddressRule = {
   city?: string;
   message: string;
   label: string;
+  /**
+   * Street number rule: runs once on address lines 1 and 2 joined, never on
+   * the city (which has no digits and would always "lack" a number).
+   */
+  streetLinesOnly: boolean;
 };
 
 function describeRule(rule: RegexRule): string {
@@ -806,6 +899,7 @@ function compileAddressRules(rules: RegexRule[]): CompiledAddressRule[] {
       city: city || undefined,
       message: rule.message || DEFAULT_ADDRESS_MESSAGE,
       label: describeRule(rule),
+      streetLinesOnly: rule.preset === "house_number",
     });
   }
   return compiled;
@@ -834,6 +928,9 @@ function evaluateAddressRules(cart: CartInput, rules: RegexRule[], vipAddresses:
     // Catches patterns split across both lines ("PO" / "Box 12").
     if (line1 && line2 && !line1Exempt) candidates.push({ field: "address1", text: `${line1} ${line2}` });
     if (candidates.length === 0) continue;
+    // The street number rule looks at both street lines together, so it only
+    // fires when neither line has a number. A trusted street address skips it.
+    const streetLines = line1 && !line1Exempt ? [{ field: "address1" as AddressField, text: line2 ? `${line1} ${line2}` : line1 }] : [];
 
     const country = normalizeCountry(address.countryCode);
     const city = normalizeCity(address.city);
@@ -843,7 +940,7 @@ function evaluateAddressRules(cart: CartInput, rules: RegexRule[], vipAddresses:
       if (rule.country && rule.country !== country) continue;
       if (rule.city && !(city && city.includes(rule.city))) continue;
 
-      const hit = candidates.find((candidate) => rule.regex.test(candidate.text));
+      const hit = (rule.streetLinesOnly ? streetLines : candidates).find((candidate) => rule.regex.test(candidate.text));
       if (!hit) continue;
 
       violations.push({
@@ -919,6 +1016,40 @@ function evaluateRegionalBlocks(cart: CartInput, geo: GeoBlocklist): Violation[]
   return violations;
 }
 
+/** Domain part of an email, lowercased. Empty when there is none. */
+export function emailDomain(email: unknown): string {
+  const text = clean(email).toLowerCase();
+  const at = text.lastIndexOf("@");
+  return at > 0 ? normalizeEmailDomain(text.slice(at + 1)) : "";
+}
+
+/** True when `domain` is `listed` or one of its subdomains. */
+function domainMatches(domain: string, listed: string): boolean {
+  return domain === listed || domain.endsWith(`.${listed}`);
+}
+
+function evaluateEmail(cart: CartInput, rules: EmailBlocklist | undefined): Violation[] {
+  if (!rules || (rules.domains.length === 0 && !rules.blockDisposable)) return [];
+  // The typed email and the account email are both checked: blocking only
+  // needs evidence, unlike trusted-customer status which needs verification.
+  const domains = [...new Set([emailDomain(cart.email), emailDomain(cart.customerEmail)].filter(Boolean))];
+  for (const domain of domains) {
+    const blocked = rules.domains.find((listed) => domainMatches(domain, listed));
+    const disposable =
+      !blocked && rules.blockDisposable ? DISPOSABLE_EMAIL_DOMAINS.find((listed) => domainMatches(domain, listed)) : undefined;
+    if (!blocked && !disposable) continue;
+    return [
+      {
+        rule: "email",
+        message: rules.message || DEFAULT_EMAIL_MESSAGE,
+        target: "$.cart.buyerIdentity.email",
+        detail: blocked ? `email domain ${domain} is blocked` : `email domain ${domain} is a throwaway email service`,
+      },
+    ];
+  }
+  return [];
+}
+
 /** Runs every enabled rule against a cart. Never throws. */
 export function evaluateCart(cart: CartInput, config: RuleConfig): Violation[] {
   const { settings } = config;
@@ -952,6 +1083,7 @@ export function evaluateCart(cart: CartInput, config: RuleConfig): Violation[] {
   }
   if (settings.enable_po_box) safely(() => evaluateAddressRules(cart, config.regexRules, vip.addresses));
   if (settings.enable_geo) safely(() => evaluateRegionalBlocks(cart, config.geoBlocklist));
+  if (settings.enable_email) safely(() => evaluateEmail(cart, config.emailBlocklist));
 
   return violations;
 }

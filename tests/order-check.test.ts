@@ -45,7 +45,7 @@ describe("order check", () => {
     });
     expect(result.matches[0].reasons[0]).toMatch(/^Delivery address matched/);
     expect(result.matches[1].sections).toEqual(["geo"]);
-    expect(result.bySection).toEqual({ geo: 1, address: 1, quantity: 0, vip: 0 });
+    expect(result.bySection).toEqual({ geo: 1, address: 1, quantity: 0, email: 0, vip: 0 });
   });
 });
 
