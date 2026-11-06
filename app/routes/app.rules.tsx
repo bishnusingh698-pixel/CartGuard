@@ -64,7 +64,9 @@ import {
   editorFromConfig,
   newAddressRule,
   newLimit,
+  newProductRule,
   parseCity,
+  parseCustomerTag,
   parseEmailDomain,
   parseKeyword,
   parseVipAddress,
@@ -78,6 +80,7 @@ import {
   type EditorState,
   type LimitRow,
   type LimitTarget,
+  type ProductRuleRow,
 } from "../lib/rule-editor";
 import { useI18n } from "../i18n/context";
 import {
@@ -93,6 +96,7 @@ import {
 import {
   DEFAULT_ADDRESS_MESSAGE,
   DEFAULT_EMAIL_MESSAGE,
+  DEFAULT_PRODUCT_COUNTRY_MESSAGE,
   DISPOSABLE_EMAIL_DOMAINS,
   isRecord,
   type FeatureFlag,
@@ -406,6 +410,36 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
         {everyProduct && (
           <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
             <TextField
+              label={t("quantity.minItems")}
+              type="number"
+              min={1}
+              max={MAX_UNITS}
+              step={1}
+              value={row.minItems}
+              onChange={(value) => onChange({ minItems: value })}
+              placeholder={t("quantity.placeholderMin")}
+              helpText={t("quantity.itemsHelp")}
+              error={errors?.minItems}
+              autoComplete="off"
+            />
+            <TextField
+              label={t("quantity.maxItems")}
+              type="number"
+              min={1}
+              max={MAX_UNITS}
+              step={1}
+              value={row.maxItems}
+              onChange={(value) => onChange({ maxItems: value })}
+              placeholder={t("quantity.placeholderMax")}
+              helpText={t("quantity.itemsHelp")}
+              error={errors?.maxItems}
+              autoComplete="off"
+            />
+          </InlineGrid>
+        )}
+        {everyProduct && (
+          <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
+            <TextField
               label={t("quantity.minAmount")}
               type="number"
               min={0}
@@ -442,6 +476,60 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
               ? t("quantity.autoMessageOverAmount")
               : t("quantity.autoMessageReduceUnits", { count: exampleMax })
           }
+          maxLength={MESSAGE_MAX_LENGTH}
+          showCharacterCount
+          autoComplete="off"
+          error={errors?.message}
+        />
+      </BlockStack>
+    </Box>
+  );
+}
+
+type ProductRuleEditorProps = {
+  row: ProductRuleRow;
+  index: number;
+  errors?: Record<string, string>;
+  onChange: (patch: Partial<ProductRuleRow>) => void;
+  onRemove: () => void;
+};
+
+function ProductRuleEditor({ row, index, errors, onChange, onRemove }: ProductRuleEditorProps) {
+  const { t, number } = useI18n();
+  return (
+    <Box padding="400" borderWidth="025" borderColor="border" borderRadius="200">
+      <BlockStack gap="300">
+        <InlineStack align="space-between" blockAlign="center">
+          <Text as="h4" variant="headingSm">
+            {t("products.row.title", { index: number(index + 1) })}
+          </Text>
+          <Button variant="plain" tone="critical" onClick={onRemove} accessibilityLabel={t("products.row.remove", { index: number(index + 1) })}>
+            {t("common.remove")}
+          </Button>
+        </InlineStack>
+        <Box maxWidth="360px">
+          <TextField
+            label={t("quantity.tagLabel")}
+            value={row.tag}
+            onChange={(tag) => onChange({ tag })}
+            placeholder={t("products.tagPlaceholder")}
+            helpText={t("quantity.placeholderTagHelp")}
+            error={errors?.tag}
+            autoComplete="off"
+          />
+        </Box>
+        <CountryPicker
+          label={t("products.countriesLabel")}
+          values={row.countries}
+          onChange={(countries) => onChange({ countries })}
+          error={errors?.countries}
+          emptyText={t("products.countriesEmpty")}
+        />
+        <TextField
+          label={t("quantity.messageLabel")}
+          value={row.message}
+          onChange={(message) => onChange({ message })}
+          placeholder={DEFAULT_PRODUCT_COUNTRY_MESSAGE}
           maxLength={MESSAGE_MAX_LENGTH}
           showCharacterCount
           autoComplete="off"
@@ -711,6 +799,10 @@ export default function BlockRulesPage() {
   const updateLimit = (id: string, patch: Partial<LimitRow>) =>
     setState((current) => ({ ...current, limits: current.limits.map((row) => (row.id === id ? { ...row, ...patch } : row)) }));
   const removeLimit = (id: string) => setState((current) => ({ ...current, limits: current.limits.filter((row) => row.id !== id) }));
+  const updateProductRule = (id: string, patch: Partial<ProductRuleRow>) =>
+    setState((current) => ({ ...current, productRules: current.productRules.map((row) => (row.id === id ? { ...row, ...patch } : row)) }));
+  const removeProductRule = (id: string) =>
+    setState((current) => ({ ...current, productRules: current.productRules.filter((row) => row.id !== id) }));
 
   // Refresh, tab close or leaving the app would silently drop edits.
   useEffect(() => {
@@ -964,6 +1056,39 @@ export default function BlockRulesPage() {
               error={listError(LIST_FIELD_IDS.zips)}
               scope={<Select label={t("fields.zips.scope")} labelHidden options={countryOptions} value={zipCountry} onChange={setZipCountry} />}
             />
+            <BlockStack gap="300">
+              <BlockStack gap="100">
+                <Text as="h3" variant="headingSm">
+                  {t("products.title")}
+                </Text>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  {t("products.description")}
+                </Text>
+              </BlockStack>
+              {errors.fields["geo.products"]?.list && (
+                <Text as="p" tone="critical">
+                  {errors.fields["geo.products"].list}
+                </Text>
+              )}
+              {state.productRules.length === 0 && (
+                <Text as="p" variant="bodySm" tone="subdued">
+                  {t("products.empty")}
+                </Text>
+              )}
+              {state.productRules.map((row, index) => (
+                <ProductRuleEditor
+                  key={row.id}
+                  row={row}
+                  index={index}
+                  errors={errors.fields[row.id]}
+                  onChange={(patch) => updateProductRule(row.id, patch)}
+                  onRemove={() => removeProductRule(row.id)}
+                />
+              ))}
+              <InlineStack>
+                <Button onClick={() => update({ productRules: [...state.productRules, newProductRule()] })}>{t("products.add")}</Button>
+              </InlineStack>
+            </BlockStack>
           </BlockStack>
         </RuleSectionCard>
 
@@ -1153,6 +1278,17 @@ export default function BlockRulesPage() {
               allowMany={false}
               emptyText={t("fields.vipAddresses.empty")}
               error={listError(LIST_FIELD_IDS.vipAddresses)}
+            />
+            <ListField
+              label={t("fields.vipTags.label")}
+              listName="trusted customer tags"
+              helpText={t("fields.vipTags.help")}
+              placeholder="wholesale"
+              values={state.vipTags}
+              onChange={(vipTags) => update({ vipTags })}
+              parse={parseCustomerTag}
+              emptyText={t("fields.vipTags.empty")}
+              error={listError(LIST_FIELD_IDS.vipTags)}
             />
           </BlockStack>
         </RuleSectionCard>

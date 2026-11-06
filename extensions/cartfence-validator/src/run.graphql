@@ -1,9 +1,13 @@
-query RunInput($limitTags: [String!] = []) {
+query RunInput($limitTags: [String!] = [], $vipTags: [String!] = []) {
   cart {
     buyerIdentity {
       email
       customer {
         email
+        hasTags(tags: $vipTags) {
+          tag
+          hasTag
+        }
       }
     }
     lines {

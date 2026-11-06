@@ -32,6 +32,7 @@ import {
   type CartLineInput,
   type EmailBlocklist,
   type GeoBlocklist,
+  type ProductCountryRule,
   type QuantityLimit,
   type RawConfig,
   type RegexRule,
@@ -40,10 +41,14 @@ import {
   MAX_EMAIL_DOMAINS,
   MAX_ORDER_AMOUNT,
   MAX_PATTERN_LENGTH,
+  MAX_PRODUCT_COUNTRY_RULES,
+  MAX_VIP_TAGS,
+  VIP_TAG_PREFIX,
   MAX_REGEX_RULES,
   MAX_UNITS,
   MIN_VIP_ADDRESS_LENGTH,
   collectLimitTags,
+  collectVipTags,
   compileRegex,
   evaluateCart,
   isRecord,
@@ -232,7 +237,8 @@ function readLimitBounds(key: string, value: unknown, add: (section: RuleSection
   const present = (raw: unknown): boolean => raw !== undefined && raw !== null && raw !== "";
   const hasUnits = present(value.min) || present(value.max) || present(value.multiple);
   const hasAmount = present(value.minAmount) || present(value.maxAmount);
-  if (!hasUnits && !hasAmount) {
+  const hasItems = present(value.minItems) || present(value.maxItems);
+  if (!hasUnits && !hasAmount && !hasItems) {
     add("quantity", `${label}: set a minimum, a maximum or an order amount, or remove this limit.`);
     return null;
   }
@@ -242,6 +248,20 @@ function readLimitBounds(key: string, value: unknown, add: (section: RuleSection
   const minAmount = money(value.minAmount);
   const maxAmount = money(value.maxAmount);
   const multiple = units(value.multiple);
+  const minItems = units(value.minItems);
+  const maxItems = units(value.maxItems);
+  if ((present(value.minItems) && minItems === null) || (present(value.maxItems) && maxItems === null)) {
+    add("quantity", `${label}: item counts must be whole numbers from 1 to ${formatNumber(MAX_UNITS)}.`);
+    return null;
+  }
+  if (hasItems && !isGlobalLimitKey(key)) {
+    add("quantity", `${label}: items per order only apply to the "Every product" limit.`);
+    return null;
+  }
+  if (minItems !== null && maxItems !== null && minItems > maxItems) {
+    add("quantity", `${label}: the fewest items can't be more than the most items.`);
+    return null;
+  }
   if ((present(value.min) && min === null) || (present(value.max) && max === null)) {
     add("quantity", `${label}: unit limits must be whole numbers from 1 to ${formatNumber(MAX_UNITS)}.`);
     return null;
@@ -275,10 +295,61 @@ function readLimitBounds(key: string, value: unknown, add: (section: RuleSection
   if (minAmount !== null) limit.minAmount = minAmount;
   if (maxAmount !== null) limit.maxAmount = maxAmount;
   if (multiple !== null) limit.multiple = multiple;
+  if (minItems !== null) limit.minItems = minItems;
+  if (maxItems !== null) limit.maxItems = maxItems;
   return limit;
 }
 
 const isGlobalLimitKey = (key: string): boolean => key === "*" || key.toLowerCase() === "all";
+
+/** Product shipping rules from the editor: a tag, the countries it can't ship to and an optional message. */
+function readProductCountryRules(value: unknown, add: (message: string) => void): ProductCountryRule[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    add(`Your product shipping rules couldn't be read. ${RELOAD_HINT}`);
+    return [];
+  }
+  if (value.length > MAX_PRODUCT_COUNTRY_RULES) add(`You can have up to ${MAX_PRODUCT_COUNTRY_RULES} product shipping rules.`);
+  const rules: ProductCountryRule[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.slice(0, MAX_PRODUCT_COUNTRY_RULES)) {
+    if (!isRecord(raw)) {
+      add(`A product shipping rule couldn't be read. ${RELOAD_HINT}`);
+      continue;
+    }
+    const tag = typeof raw.tag === "string" ? raw.tag.trim() : "";
+    if (!tag || tag.length > MAX_ENTRY_LENGTH) {
+      add("Every product shipping rule needs a product tag of up to 255 characters.");
+      continue;
+    }
+    const label = `Products tagged "${tag.slice(0, 40)}"`;
+    if (seen.has(tag.toLowerCase())) {
+      add(`${label} has more than one shipping rule. Combine them into one.`);
+      continue;
+    }
+    seen.add(tag.toLowerCase());
+    const list = readStringList(raw.countries);
+    if (!list || list.length === 0) {
+      add(`${label}: choose at least one country these products can't ship to.`);
+      continue;
+    }
+    const codes = list.map((entry) => findCountry(entry));
+    if (codes.some((code) => !code)) {
+      add(`${label}: choose countries from the list.`);
+      continue;
+    }
+    const rule: ProductCountryRule = { tag, countries: uniqueCaseInsensitive(codes as string[]) };
+    if (raw.message !== undefined) {
+      if (typeof raw.message !== "string" || raw.message.length > MAX_MESSAGE_LENGTH) {
+        add(`${label}: keep the customer message under ${MAX_MESSAGE_LENGTH} characters.`);
+        continue;
+      }
+      if (raw.message.trim()) rule.message = raw.message.trim();
+    }
+    rules.push(rule);
+  }
+  return rules;
+}
 
 /**
  * Checks the structured rules submitted by the editor and returns the
@@ -411,6 +482,8 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
     if (badStates.length > 0) {
       add("geo", `These states or provinces aren't valid: ${badStates.slice(0, 5).join(", ")}. Choose them from the list instead.`);
     }
+    const products = readProductCountryRules(rawGeo.products, (message) => add("geo", message));
+    if (products.length > 0) geoBlocklist.products = products;
   }
 
   // Trusted customers
@@ -424,11 +497,15 @@ export function validateRuleConfig(input: unknown): { config: RuleConfig | null;
     // Short address entries are ignored at checkout, so surface them instead of failing silently.
     const tooShort = rawVip.filter((entry) => {
       const normalized = normalizeText(entry);
+      if (normalized.startsWith(VIP_TAG_PREFIX)) return false;
       return normalized !== "" && !normalized.includes("@") && normalized.length < MIN_VIP_ADDRESS_LENGTH;
     });
     if (tooShort.length > 0) {
       add("vip", `Street addresses need at least ${MIN_VIP_ADDRESS_LENGTH} characters: ${tooShort.slice(0, 5).join(", ")}.`);
     }
+    const tagEntries = rawVip.filter((entry) => entry.toLowerCase().startsWith(VIP_TAG_PREFIX));
+    if (tagEntries.some((entry) => !entry.slice(VIP_TAG_PREFIX.length).trim())) add("vip", "A trusted customer tag is empty. Remove it and add the tag again.");
+    if (uniqueCaseInsensitive(tagEntries).length > MAX_VIP_TAGS) add("vip", `You can trust up to ${MAX_VIP_TAGS} customer tags.`);
     vipAllowlist = uniqueCaseInsensitive(rawVip.slice(0, MAX_LIST_ENTRIES));
   }
 
@@ -516,7 +593,10 @@ export async function writeFunctionConfiguration(admin: AdminApi, validationId: 
       namespace: CARTFENCE_NAMESPACE,
       key: FUNCTION_CONFIG_KEY,
       type: METAFIELD_TYPE,
-      value: JSON.stringify({ limitTags: collectLimitTags(config.quantityLimits) }),
+      value: JSON.stringify({
+        limitTags: collectLimitTags(config.quantityLimits, config.geoBlocklist),
+        vipTags: collectVipTags(config.vipAllowlist),
+      }),
     },
   ]);
 }
@@ -679,6 +759,7 @@ function orderToCart(order: OrderNode, limitTags: Set<string>): CartInput {
 
 const VIOLATION_SECTION: Record<ViolationRule, RuleSection> = {
   country: "geo",
+  product: "geo",
   zip: "geo",
   city: "geo",
   state: "geo",
@@ -701,7 +782,7 @@ export function simulateOrders(orders: OrderNode[], config: RuleConfig): ImpactR
   const samples: string[] = [];
   const matches: ImpactMatch[] = [];
   const bySection: Record<RuleSection, number> = { geo: 0, address: 0, quantity: 0, email: 0, vip: 0 };
-  const limitTags = new Set(collectLimitTags(config.quantityLimits).map((tag) => tag.trim().toLowerCase()));
+  const limitTags = new Set(collectLimitTags(config.quantityLimits, config.geoBlocklist).map((tag) => tag.trim().toLowerCase()));
   for (const order of orders) {
     const violations = evaluateCart(orderToCart(order, limitTags), config);
     if (violations.length === 0) continue;
