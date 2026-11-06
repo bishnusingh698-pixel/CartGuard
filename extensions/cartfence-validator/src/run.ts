@@ -4,9 +4,11 @@
  * Target : cart.validations.generate.run (API 2026-07)
  * Export : `run` (pinned by [[extensions.targeting]].export)
  * Input  : src/run.graphql. Rules come from app-owned shop metafields
- *          ($app:cartguard). The list of tags used by quantity limits comes
- *          from the validation's `function-configuration` metafield through
- *          input query variables ($limitTags -> product.hasTags).
+ *          ($app:cartguard). The product tags used by quantity limits and
+ *          product shipping rules, and the trusted customer tags, come from
+ *          the validation's `function-configuration` metafield through input
+ *          query variables ($limitTags -> product.hasTags, $vipTags ->
+ *          customer.hasTags).
  *
  * All rule logic lives in src/rules.ts, which the admin Impact Checker also
  * uses, so checkout and the simulator can never drift apart.
@@ -34,7 +36,13 @@ type MetafieldValue = { value?: string | null } | null | undefined;
 export type RunInput = {
   cart?: {
     /** customer is only present when the buyer is signed in to their account. */
-    buyerIdentity?: { email?: string | null; customer?: { email?: string | null } | null } | null;
+    buyerIdentity?: {
+      email?: string | null;
+      customer?: {
+        email?: string | null;
+        hasTags?: Array<{ tag?: string | null; hasTag?: boolean | null } | null> | null;
+      } | null;
+    } | null;
     lines?: Array<{
       quantity?: number | null;
       cost?: { amountPerQuantity?: { amount?: string | null } | null } | null;
@@ -93,6 +101,12 @@ export function toCartInput(input: RunInput): CartInput {
     });
   });
 
+  const customerTags: string[] = [];
+  const customerHasTags = cart?.buyerIdentity?.customer?.hasTags;
+  for (const entry of Array.isArray(customerHasTags) ? customerHasTags : []) {
+    if (entry?.hasTag === true && typeof entry.tag === "string") customerTags.push(entry.tag);
+  }
+
   const addresses: CartInput["addresses"] = [];
   const groups = Array.isArray(cart?.deliveryGroups) ? cart.deliveryGroups : [];
   groups.forEach((group, groupIndex) => {
@@ -109,6 +123,7 @@ export function toCartInput(input: RunInput): CartInput {
   return {
     email: cart?.buyerIdentity?.email ?? null,
     customerEmail: cart?.buyerIdentity?.customer?.email ?? null,
+    customerTags,
     lines,
     addresses,
     totalAmount: parseAmount(subtotal?.amount),

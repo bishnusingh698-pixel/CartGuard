@@ -205,9 +205,11 @@ type CountryPickerProps = {
   values: string[];
   onChange: (values: string[]) => void;
   error?: string;
+  /** Shown when no country is chosen. Defaults to "No countries blocked." */
+  emptyText?: string;
 };
 
-export function CountryPicker({ label, helpText, values, onChange, error }: CountryPickerProps) {
+export function CountryPicker({ label, helpText, values, onChange, error, emptyText }: CountryPickerProps) {
   const { t, language } = useI18n();
   const [query, setQuery] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -250,7 +252,7 @@ export function CountryPicker({ label, helpText, values, onChange, error }: Coun
         values={values}
         onChange={onChange}
         format={(code) => countryName(code, language)}
-        emptyText={t("fields.countries.empty")}
+        emptyText={emptyText ?? t("fields.countries.empty")}
       />
       <InlineStack>
         <Button variant="plain" onClick={() => setPasteOpen((open) => !open)} ariaExpanded={pasteOpen}>

@@ -14,13 +14,18 @@ effect on recent orders before saving.
 ## What merchants can block
 
 - Countries, states, cities and postal codes
+- Products that can't ship to some countries: products with a tag (such as
+  batteries, liquids or alcohol) can't be sent to the countries chosen for it
 - Addresses: PO Boxes, US military addresses, a missing house or building
   number, blocked words and specific streets
 - Order quantities: minimum and maximum units per product, pack sizes
-  ("sold in packs of 6") and minimum or maximum order value
+  ("sold in packs of 6"), fewest and most items per order (all products
+  together) and minimum or maximum order value
 - Email addresses: blocked email domains and well-known throwaway email
   services. Only domains are stored, never a customer's email
-- Trusted customers skip the rules above, except blocked countries
+- Trusted customers (by account email, street address or customer tag such as
+  `wholesale`) skip the rules above, except blocked countries and product
+  shipping rules
 
 The admin has three pages in order of use: Overview (status and a three-step
 setup guide), Block rules (a step list, links to every section, templates

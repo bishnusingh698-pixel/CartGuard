@@ -17,13 +17,17 @@ import {
   MAX_ORDER_AMOUNT,
   MAX_PATTERN_LENGTH,
   MAX_UNITS,
+  MAX_PRODUCT_COUNTRY_RULES,
+  MAX_VIP_TAGS,
   MIN_VIP_ADDRESS_LENGTH,
   PRODUCT_GID_PREFIX,
+  VIP_TAG_PREFIX,
   compileRegex,
   isRiskyPattern,
   normalizeEmailDomain,
   splitCountryScope,
   type CartFenceSettings,
+  type ProductCountryRule,
   type QuantityLimit,
   type RegexRule,
   type RuleConfig,
@@ -32,7 +36,7 @@ import { findCountry, isCountryCode, isValidStateEntry } from "./regions";
 import { formatNumber, type RuleSection } from "./rule-summary";
 
 export const MESSAGE_MAX_LENGTH = 250;
-export { MAX_ORDER_AMOUNT, MAX_UNITS };
+export { MAX_ORDER_AMOUNT, MAX_PRODUCT_COUNTRY_RULES, MAX_UNITS };
 
 export const KEYWORD_MESSAGE = "Your delivery address contains words we can't ship to. Please use a different address.";
 /** Message older builds saved with specific-address rules. */
@@ -75,6 +79,18 @@ export type LimitRow = {
   maxAmount: string;
   /** Pack size: units must be a multiple of this. Blank for none. */
   multiple: string;
+  /** Items in the whole order, all products together. Only used on "Every product" rows. */
+  minItems: string;
+  maxItems: string;
+  message: string;
+};
+
+/** One "this product can't ship to these countries" rule. */
+export type ProductRuleRow = {
+  id: string;
+  tag: string;
+  /** Country codes. */
+  countries: string[];
   message: string;
 };
 
@@ -84,12 +100,16 @@ export type EditorState = {
   states: string[];
   cities: string[];
   zips: string[];
+  /** Products (by tag) that can't ship to some countries. */
+  productRules: ProductRuleRow[];
   checks: Record<BuiltInCheck, boolean>;
   keywords: string[];
   addressRules: AddressRuleRow[];
   limits: LimitRow[];
   vipEmails: string[];
   vipAddresses: string[];
+  /** Customer account tags that make a signed-in customer trusted, without the "tag:" prefix. */
+  vipTags: string[];
   /** Blocked email domains, such as "example.com". */
   emailDomains: string[];
   /** Block well-known throwaway email services. */
@@ -110,7 +130,23 @@ export function newAddressRule(): AddressRuleRow {
 }
 
 export function newLimit(): LimitRow {
-  return { id: nextId("limit"), target: "tag", value: "", min: "", max: "", minAmount: "", maxAmount: "", multiple: "", message: "" };
+  return {
+    id: nextId("limit"),
+    target: "tag",
+    value: "",
+    min: "",
+    max: "",
+    minAmount: "",
+    maxAmount: "",
+    multiple: "",
+    minItems: "",
+    maxItems: "",
+    message: "",
+  };
+}
+
+export function newProductRule(): ProductRuleRow {
+  return { id: nextId("product"), tag: "", countries: [], message: "" };
 }
 
 export function escapeRegex(value: string): string {
@@ -149,6 +185,8 @@ function limitToRow(key: string, limit: QuantityLimit): LimitRow {
     minAmount: limit.minAmount === undefined ? "" : String(limit.minAmount),
     maxAmount: limit.maxAmount === undefined ? "" : String(limit.maxAmount),
     multiple: limit.multiple === undefined ? "" : String(limit.multiple),
+    minItems: limit.minItems === undefined ? "" : String(limit.minItems),
+    maxItems: limit.maxItems === undefined ? "" : String(limit.maxItems),
     message: limit.message ?? "",
   };
   if (key === "*" || key.toLowerCase() === "all") return { ...base, target: "all", value: "" };
@@ -191,18 +229,29 @@ export function editorFromConfig(config: RuleConfig): EditorState {
     states: [...config.geoBlocklist.states],
     cities: [...config.geoBlocklist.cities],
     zips: [...config.geoBlocklist.zips],
+    productRules: (config.geoBlocklist.products ?? []).map((rule) => ({
+      id: nextId("product"),
+      tag: rule.tag,
+      countries: rule.countries.map((code) => findCountry(code) ?? code.toUpperCase()),
+      message: rule.message ?? "",
+    })),
     checks,
     keywords: [...(keywordRule?.keywords ?? [])],
     addressRules,
     limits: Object.entries(config.quantityLimits).map(([key, limit]) => limitToRow(key, limit)),
-    vipEmails: config.vipAllowlist.filter((entry) => entry.includes("@")),
-    vipAddresses: config.vipAllowlist.filter((entry) => !entry.includes("@")),
+    vipEmails: config.vipAllowlist.filter((entry) => !isVipTagEntry(entry) && entry.includes("@")),
+    vipAddresses: config.vipAllowlist.filter((entry) => !isVipTagEntry(entry) && !entry.includes("@")),
+    vipTags: config.vipAllowlist.filter(isVipTagEntry).map((entry) => entry.slice(VIP_TAG_PREFIX.length).trim()),
     emailDomains: [...(config.emailBlocklist?.domains ?? [])],
     blockDisposable: config.emailBlocklist?.blockDisposable ?? false,
     emailMessage: config.emailBlocklist?.message ?? "",
     houseNumberCountry,
     presetMessages,
   };
+}
+
+function isVipTagEntry(entry: string): boolean {
+  return entry.toLowerCase().startsWith(VIP_TAG_PREFIX);
 }
 
 /* Form -> stored config */
@@ -266,14 +315,28 @@ export function configFromEditor(state: EditorState): RuleConfig {
     const minAmount = row.target === "all" ? readAmount(row.minAmount) : undefined;
     const maxAmount = row.target === "all" ? readAmount(row.maxAmount) : undefined;
     const multiple = readPackSize(row.multiple);
+    const minItems = row.target === "all" ? readUnits(row.minItems) : undefined;
+    const maxItems = row.target === "all" ? readUnits(row.maxItems) : undefined;
     if (min === null || max === null || minAmount === null || maxAmount === null || multiple === null) continue;
+    if (minItems === null || maxItems === null) continue;
     if (min !== undefined) limit.min = min;
     if (max !== undefined) limit.max = max;
     if (multiple !== undefined) limit.multiple = multiple;
     if (minAmount !== undefined) limit.minAmount = minAmount;
     if (maxAmount !== undefined) limit.maxAmount = maxAmount;
+    if (minItems !== undefined) limit.minItems = minItems;
+    if (maxItems !== undefined) limit.maxItems = maxItems;
     const message = row.message.trim();
     quantityLimits[key] = message ? { ...limit, message } : limit;
+  }
+
+  const products: ProductCountryRule[] = [];
+  for (const row of state.productRules) {
+    const tag = row.tag.trim();
+    // A rule still being filled in has nothing to enforce yet.
+    if (!tag || row.countries.length === 0) continue;
+    const message = row.message.trim();
+    products.push({ tag, countries: [...row.countries], ...(message ? { message } : {}) });
   }
 
   return {
@@ -285,8 +348,9 @@ export function configFromEditor(state: EditorState): RuleConfig {
       zips: [...state.zips],
       cities: [...state.cities],
       states: [...state.states],
+      ...(products.length > 0 ? { products } : {}),
     },
-    vipAllowlist: [...state.vipEmails, ...state.vipAddresses],
+    vipAllowlist: [...state.vipEmails, ...state.vipAddresses, ...state.vipTags.map((tag) => `${VIP_TAG_PREFIX}${tag}`)],
     emailBlocklist: {
       domains: [...state.emailDomains],
       blockDisposable: state.blockDisposable,
@@ -385,6 +449,16 @@ export function parseEmailDomain(raw: string): ParseResult {
   return { value: domain };
 }
 
+/** A customer tag, as it appears on the customer in Shopify ("wholesale"). */
+export function parseCustomerTag(raw: string): ParseResult {
+  const value = raw.trim().replace(/^tag:\s*/i, "").replace(/\s+/g, " ");
+  if (!value) return { error: "Enter a customer tag, like wholesale." };
+  // Stored as "tag:<name>", and every trusted customer entry is capped at 255.
+  if (value.length > 250) return { error: "Tags can't be longer than 250 characters." };
+  if (value.includes(",")) return { error: "Add one tag at a time. Commas aren't allowed in a tag." };
+  return { value };
+}
+
 export function parseVipAddress(raw: string): ParseResult {
   const value = raw.trim().replace(/\s+/g, " ");
   if (value.includes("@")) return { error: "That looks like an email. Add it under trusted customer emails instead." };
@@ -427,6 +501,7 @@ export const LIST_FIELD_IDS = {
   keywords: "address.keywords",
   vipEmails: "vip.emails",
   vipAddresses: "vip.addresses",
+  vipTags: "vip.tags",
   emailDomains: "email.domains",
 } as const;
 
@@ -462,6 +537,29 @@ export function validateEditor(state: EditorState): EditorErrors {
   checkList("address", LIST_FIELD_IDS.keywords, state.keywords, accepts(parseKeyword));
   checkList("vip", LIST_FIELD_IDS.vipEmails, state.vipEmails, accepts(parseVipEmail));
   checkList("vip", LIST_FIELD_IDS.vipAddresses, state.vipAddresses, accepts(parseVipAddress));
+  checkList("vip", LIST_FIELD_IDS.vipTags, state.vipTags, accepts(parseCustomerTag));
+  if (state.vipTags.length > MAX_VIP_TAGS) {
+    add("vip", LIST_FIELD_IDS.vipTags, "list", `You can trust up to ${MAX_VIP_TAGS} customer tags. Remove some.`);
+  }
+
+  if (state.productRules.length > MAX_PRODUCT_COUNTRY_RULES) {
+    add("geo", "geo.products", "list", `You can have up to ${MAX_PRODUCT_COUNTRY_RULES} product shipping rules. Remove some.`);
+  }
+  const productTags = new Set<string>();
+  for (const row of state.productRules) {
+    const tag = row.tag.trim();
+    if (!tag) {
+      if (row.countries.length > 0 || row.message.trim()) add("geo", row.id, "tag", "Enter a product tag, or remove this rule.");
+    } else {
+      if (tag.length > 255) add("geo", row.id, "tag", "Tags can't be longer than 255 characters.");
+      if (productTags.has(tag.toLowerCase())) add("geo", row.id, "tag", "You already have a rule for this tag. Add the countries to that rule instead.");
+      productTags.add(tag.toLowerCase());
+      if (row.countries.length === 0) add("geo", row.id, "countries", "Choose at least one country these products can't ship to.");
+    }
+    const invalid = row.countries.filter((code) => !isCountryCode(code));
+    if (invalid.length > 0) add("geo", row.id, "countries", `Remove the countries we don't recognise: ${invalid.slice(0, 5).join(", ")}.`);
+    if (row.message.length > MESSAGE_MAX_LENGTH) add("geo", row.id, "message", `Keep the message under ${MESSAGE_MAX_LENGTH} characters.`);
+  }
   checkList("email", LIST_FIELD_IDS.emailDomains, state.emailDomains, accepts(parseEmailDomain));
   if (state.emailMessage.length > MESSAGE_MAX_LENGTH) {
     add("email", "email.message", "message", `Keep the message under ${MESSAGE_MAX_LENGTH} characters.`);
@@ -490,7 +588,7 @@ export function validateEditor(state: EditorState): EditorErrors {
   const seen = new Set<string>();
   for (const row of state.limits) {
     const value = row.value.trim();
-    const amountFields = row.target === "all" && (row.minAmount.trim() || row.maxAmount.trim());
+    const amountFields = row.target === "all" && (row.minAmount.trim() || row.maxAmount.trim() || row.minItems.trim() || row.maxItems.trim());
     if (row.target !== "all" && !value) {
       if (row.min.trim() || row.max.trim() || row.multiple.trim() || row.message.trim() || amountFields) {
         add("quantity", row.id, "value", row.target === "tag" ? "Enter a product tag, or remove this limit." : "Enter a product ID, or remove this limit.");
@@ -517,15 +615,25 @@ export function validateEditor(state: EditorState): EditorErrors {
     const multiple = readPackSize(row.multiple);
     if (multiple === null) add("quantity", row.id, "multiple", `Enter a whole number from 2 to ${formatNumber(MAX_UNITS)}, or leave it blank.`);
     if (min === undefined && max === undefined && multiple === undefined && !amountFields) {
-      add("quantity", row.id, "max", "Set a minimum, a maximum, a pack size or an order amount. Remove this limit if you don't need it.");
+      add("quantity", row.id, "max", "Set a minimum, a maximum, a pack size, an item count or an order amount. Remove this limit if you don't need it.");
     }
 
     if (row.target !== "all") {
-      // Amount bounds are order-wide, so they belong on the "Every product" row.
+      // Amount and item bounds are order-wide, so they belong on the "Every product" row.
       for (const field of ["minAmount", "maxAmount"] as const) {
         if (row[field].trim()) add("quantity", row.id, field, 'Order amounts only apply to the "Every product" limit.');
       }
+      for (const field of ["minItems", "maxItems"] as const) {
+        if (row[field].trim()) add("quantity", row.id, field, 'Items per order only apply to the "Every product" limit.');
+      }
       continue;
+    }
+    const minItems = readUnits(row.minItems);
+    const maxItems = readUnits(row.maxItems);
+    if (minItems === null) add("quantity", row.id, "minItems", `Enter a whole number from 1 to ${formatNumber(MAX_UNITS)}, or leave it blank.`);
+    if (maxItems === null) add("quantity", row.id, "maxItems", `Enter a whole number from 1 to ${formatNumber(MAX_UNITS)}, or leave it blank.`);
+    if (minItems !== null && maxItems !== null && minItems !== undefined && maxItems !== undefined && minItems > maxItems) {
+      add("quantity", row.id, "minItems", "The fewest items can't be more than the most items.");
     }
     const minAmount = readAmount(row.minAmount);
     const maxAmount = readAmount(row.maxAmount);

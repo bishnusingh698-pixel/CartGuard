@@ -7,14 +7,18 @@
  * Functions (Javy) runtime and in Node.
  *
  * Evaluation order:
- *   1. Blocked countries (hard embargo). Never bypassed, not even by VIPs.
- *   2. VIP allowlist. A signed-in customer whose account email is listed
- *      skips every remaining rule (quantity, amount, address, ZIP/city/state).
+ *   1. Blocked countries (hard embargo) and products that can't ship to some
+ *      countries. Never bypassed, not even by VIPs: both are usually legal or
+ *      carrier restrictions rather than fraud rules.
+ *   2. VIP allowlist. A signed-in customer whose account email is listed, or
+ *      whose customer account carries a listed tag ("tag:wholesale"), skips
+ *      every remaining rule (quantity, amount, address, ZIP/city/state).
  *      Emails typed by guests are unverified and never grant VIP status. A
  *      listed street address is weaker evidence, so it only exempts delivery
  *      address line 1 from the address rules (step 4).
- *   3. Quantity limits per product (by product tag, product ID or "all") and
- *      order amount limits, each with a minimum, a maximum or both.
+ *   3. Quantity limits per product (by product tag, product ID or "all"),
+ *      order-wide item counts and order amount limits, each with a minimum,
+ *      a maximum or both.
  *   4. Address rules (PO Box, military, missing street number, keywords,
  *      streets).
  *   5. ZIP / city / state-province blocklists. Entries can be limited to one
@@ -64,6 +68,10 @@ export type QuantityLimit = {
   maxAmount?: number;
   /** Units must come in multiples of this ("sold in packs of 6"). 2 or more. */
   multiple?: number;
+  /** Fewest items in the whole order, all products together. "Every product" only. */
+  minItems?: number;
+  /** Most items in the whole order, all products together. "Every product" only. */
+  maxItems?: number;
   message?: string;
 };
 
@@ -73,11 +81,27 @@ export type AmountLimits = {
   max?: number;
 };
 
+/**
+ * Products (by tag) that can't be delivered to some countries, for items a
+ * carrier or the law won't let you send there: batteries, liquids, alcohol,
+ * supplements.
+ */
+export type ProductCountryRule = {
+  /** Product tag, matched without regard to case. */
+  tag: string;
+  /** ISO 3166-1 alpha-2 codes the tagged products can't ship to. */
+  countries: string[];
+  /** Buyer-facing message. Falls back to DEFAULT_PRODUCT_COUNTRY_MESSAGE. */
+  message?: string;
+};
+
 export type GeoBlocklist = {
   countries: string[];
   zips: string[];
   cities: string[];
   states: string[];
+  /** Optional so configs saved before product rules existed still evaluate. */
+  products?: ProductCountryRule[];
 };
 
 /**
@@ -138,6 +162,11 @@ export type CartInput = {
   email?: string | null;
   /** Email of the signed-in customer account (verified by Shopify). */
   customerEmail?: string | null;
+  /**
+   * Tags on the signed-in customer's account, limited to the trusted tags the
+   * Function asked about (customer.hasTags). Empty for guests.
+   */
+  customerTags?: string[];
   lines: CartLineInput[];
   addresses: Array<{ groupIndex: number; address: CartAddress }>;
   /**
@@ -156,7 +185,7 @@ export type CartInput = {
   currencyRate?: number | null;
 };
 
-export type ViolationRule = "country" | "quantity" | "amount" | "address" | "zip" | "city" | "state" | "email";
+export type ViolationRule = "country" | "product" | "quantity" | "amount" | "address" | "zip" | "city" | "state" | "email";
 
 export type Violation = {
   rule: ViolationRule;
@@ -188,6 +217,14 @@ export const DEFAULT_EMAIL_MESSAGE =
   "We can't accept orders with this email address. Please use a different email address or contact us for help.";
 /** Most blocked email domains a shop can store. */
 export const MAX_EMAIL_DOMAINS = 500;
+export const DEFAULT_PRODUCT_COUNTRY_MESSAGE =
+  "Some items in your cart can't be shipped to this country. Please remove them or choose a different delivery address.";
+/** Most product shipping rules a shop can store. */
+export const MAX_PRODUCT_COUNTRY_RULES = 20;
+/** Most trusted customer tags a shop can store. */
+export const MAX_VIP_TAGS = 25;
+/** Prefix that marks a trusted customer entry as a customer tag: "tag:wholesale". */
+export const VIP_TAG_PREFIX = "tag:";
 
 /**
  * Well-known throwaway email services. Kept short on purpose: every entry
@@ -494,14 +531,20 @@ export function parseQuantityLimits(raw: unknown): Record<string, QuantityLimit>
       const minAmount = readAmount(value.minAmount);
       const maxAmount = readAmount(value.maxAmount);
       const multiple = readBound(value.multiple, 2, MAX_UNITS);
+      const minItems = readBound(value.minItems, 1, MAX_UNITS);
+      const maxItems = readBound(value.maxItems, 1, MAX_UNITS);
       if (min === null || max === null || minAmount === null || maxAmount === null || multiple === null) continue;
+      if (minItems === null || maxItems === null) continue;
       if (min !== undefined && max !== undefined && min > max) continue;
+      if (minItems !== undefined && maxItems !== undefined && minItems > maxItems) continue;
       if (minAmount !== undefined && maxAmount !== undefined && minAmount > maxAmount) continue;
       if (min !== undefined) limit.min = min;
       if (max !== undefined) limit.max = max;
       if (minAmount !== undefined) limit.minAmount = minAmount;
       if (maxAmount !== undefined) limit.maxAmount = maxAmount;
       if (multiple !== undefined) limit.multiple = multiple;
+      if (minItems !== undefined) limit.minItems = minItems;
+      if (maxItems !== undefined) limit.maxItems = maxItems;
       if (typeof value.message === "string" && value.message.trim()) message = value.message.trim();
     } else {
       continue;
@@ -531,7 +574,7 @@ function readAmount(value: unknown): number | null | undefined {
 
 /** True when the stored object sets at least one bound the engine can use. */
 function readAnyBound(value: Record<string, unknown>): boolean {
-  return ["min", "max", "minAmount", "maxAmount", "multiple"].some((field) => {
+  return ["min", "max", "minAmount", "maxAmount", "multiple", "minItems", "maxItems"].some((field) => {
     const raw = value[field];
     if (raw === undefined || raw === null || raw === "") return false;
     return Number.isFinite(typeof raw === "string" ? Number(raw.replace(/[\s,]/g, "")) : Number(raw));
@@ -541,12 +584,31 @@ function readAnyBound(value: Record<string, unknown>): boolean {
 export function parseGeoBlocklist(raw: unknown): GeoBlocklist {
   const parsed = parseJson(raw);
   if (!isRecord(parsed)) return { countries: [], zips: [], cities: [], states: [] };
-  return {
+  const geo: GeoBlocklist = {
     countries: toStringList(parsed.countries),
     zips: toStringList(parsed.zips),
     cities: toStringList(parsed.cities),
     states: toStringList(parsed.states),
   };
+  const products = parseProductCountryRules(parsed.products);
+  if (products.length > 0) geo.products = products;
+  return geo;
+}
+
+function parseProductCountryRules(value: unknown): ProductCountryRule[] {
+  if (!Array.isArray(value)) return [];
+  const rules: ProductCountryRule[] = [];
+  for (const entry of value.slice(0, MAX_PRODUCT_COUNTRY_RULES)) {
+    if (!isRecord(entry)) continue;
+    const tag = typeof entry.tag === "string" ? entry.tag.trim() : "";
+    // A rule without countries would never block anything, so it is dropped.
+    const countries = toStringList(entry.countries).map(normalizeCountry).filter(Boolean);
+    if (!tag || countries.length === 0) continue;
+    const rule: ProductCountryRule = { tag, countries };
+    if (typeof entry.message === "string" && entry.message.trim()) rule.message = entry.message.trim();
+    rules.push(rule);
+  }
+  return rules;
 }
 
 export function parseVipAllowlist(raw: unknown): string[] {
@@ -590,20 +652,42 @@ function isGlobalKey(key: string): boolean {
 }
 
 /**
- * Tags the checkout Function must ask Shopify about (via product.hasTags).
- * Product GIDs and the global keys are excluded; numeric keys are kept because
- * they may be tags as well as product IDs.
+ * Tags the checkout Function must ask Shopify about (via product.hasTags):
+ * quantity limit keys and the tags of product shipping rules. Product GIDs and
+ * the global keys are excluded; numeric keys are kept because they may be tags
+ * as well as product IDs.
  */
-export function collectLimitTags(limits: Record<string, QuantityLimit>): string[] {
+export function collectLimitTags(limits: Record<string, QuantityLimit>, geo?: GeoBlocklist): string[] {
   const tags: string[] = [];
   const seen = new Set<string>();
+  const add = (tag: string) => {
+    const lowered = tag.toLowerCase();
+    if (seen.has(lowered) || tags.length >= MAX_LIMIT_TAGS) return;
+    seen.add(lowered);
+    tags.push(tag);
+  };
+  // Product shipping rules come first: they are usually legal restrictions,
+  // so they keep their place if the combined list ever reaches the cap.
+  for (const rule of geo?.products ?? []) add(rule.tag);
   for (const key of Object.keys(limits)) {
     if (isGlobalKey(key) || key.startsWith(PRODUCT_GID_PREFIX)) continue;
-    const lowered = key.toLowerCase();
-    if (seen.has(lowered)) continue;
+    add(key);
+  }
+  return tags;
+}
+
+/** Customer tags that make a signed-in customer trusted, without the "tag:" prefix. */
+export function collectVipTags(allowlist: string[]): string[] {
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of allowlist) {
+    if (!entry.toLowerCase().startsWith(VIP_TAG_PREFIX)) continue;
+    const tag = entry.slice(VIP_TAG_PREFIX.length).trim();
+    const lowered = tag.toLowerCase();
+    if (!tag || seen.has(lowered)) continue;
     seen.add(lowered);
-    tags.push(key);
-    if (tags.length >= MAX_LIMIT_TAGS) break;
+    tags.push(tag);
+    if (tags.length >= MAX_VIP_TAGS) break;
   }
   return tags;
 }
@@ -649,9 +733,9 @@ function evaluateBlockedCountries(cart: CartInput, geo: GeoBlocklist): Violation
   return violations;
 }
 
-type VipLists = { emails: Set<string>; addresses: Set<string> };
+type VipLists = { emails: Set<string>; addresses: Set<string>; tags: Set<string> };
 
-const emptyVipLists = (): VipLists => ({ emails: new Set<string>(), addresses: new Set<string>() });
+const emptyVipLists = (): VipLists => ({ emails: new Set<string>(), addresses: new Set<string>(), tags: new Set<string>() });
 
 function normalizeVipAddress(value: unknown): string {
   return normalizeForMatch(value).toLowerCase();
@@ -659,9 +743,10 @@ function normalizeVipAddress(value: unknown): string {
 
 function buildVipLists(allowlist: string[]): VipLists {
   const lists = emptyVipLists();
+  for (const tag of collectVipTags(allowlist)) lists.tags.add(tag.toLowerCase());
   for (const entry of allowlist) {
     const normalized = normalizeText(entry);
-    if (!normalized) continue;
+    if (!normalized || normalized.startsWith(VIP_TAG_PREFIX)) continue;
     if (normalized.includes("@")) {
       lists.emails.add(normalized);
     } else {
@@ -672,8 +757,16 @@ function buildVipLists(allowlist: string[]): VipLists {
   return lists;
 }
 
-/** Only the signed-in customer's account email counts; typed guest emails are ignored. */
+/**
+ * Only the signed-in customer's account counts: its email or one of its tags.
+ * Typed guest emails are ignored.
+ */
 function isVipCustomer(cart: CartInput, vip: VipLists): boolean {
+  if (vip.tags.size > 0 && Array.isArray(cart.customerTags)) {
+    for (const tag of cart.customerTags) {
+      if (typeof tag === "string" && vip.tags.has(tag.trim().toLowerCase())) return true;
+    }
+  }
   if (vip.emails.size === 0) return false;
   const email = normalizeText(cart.customerEmail);
   return Boolean(email) && vip.emails.has(email);
@@ -766,6 +859,83 @@ function evaluateQuantityLimits(cart: CartInput, limits: Record<string, Quantity
         target,
         detail: `${aggregate.quantity} units aren't a multiple of ${multiple.value} for ${describeLimitKey(multiple.key)}`,
       });
+    }
+  }
+  return violations;
+}
+
+/**
+ * Order-wide item counts, all products together. Like order amounts they are
+ * only read from the "Every product" limit, so a tag-scoped limit can never
+ * decide the size of an unrelated order.
+ */
+function evaluateOrderItems(cart: CartInput, limits: Record<string, QuantityLimit>): Violation[] {
+  let minItems: QuantityLimit | null = null;
+  let maxItems: QuantityLimit | null = null;
+  for (const [key, limit] of Object.entries(limits)) {
+    if (!isGlobalKey(key)) continue;
+    if (limit.minItems !== undefined && (minItems?.minItems === undefined || limit.minItems > minItems.minItems)) minItems = limit;
+    if (limit.maxItems !== undefined && (maxItems?.maxItems === undefined || limit.maxItems < maxItems.maxItems)) maxItems = limit;
+  }
+  if (!minItems && !maxItems) return [];
+  let total = 0;
+  for (const line of cart.lines) {
+    if (line.productId && Number.isFinite(line.quantity) && line.quantity > 0) total += line.quantity;
+  }
+  // An empty cart has nothing to check yet.
+  if (total === 0) return [];
+  if (maxItems?.maxItems !== undefined && total > maxItems.maxItems) {
+    return [
+      {
+        rule: "quantity",
+        message: `You can buy up to ${maxItems.maxItems} items per order. Please remove some items to continue.`,
+        target: "$.cart",
+        detail: `${total} items in the order exceed the limit of ${maxItems.maxItems} items per order`,
+      },
+    ];
+  }
+  if (minItems?.minItems !== undefined && total < minItems.minItems) {
+    return [
+      {
+        rule: "quantity",
+        message: `Orders need at least ${minItems.minItems} items. Please add more to your cart to continue.`,
+        target: "$.cart",
+        detail: `${total} items in the order are below the minimum of ${minItems.minItems} items per order`,
+      },
+    ];
+  }
+  return [];
+}
+
+/**
+ * Tagged products that can't ship to a delivery country. One error per
+ * product line, pointing at the line so the buyer knows what to remove.
+ */
+function evaluateProductCountries(cart: CartInput, geo: GeoBlocklist): Violation[] {
+  const rules = geo.products ?? [];
+  if (rules.length === 0 || cart.addresses.length === 0) return [];
+  const countries = new Set<string>();
+  for (const { address } of cart.addresses) {
+    const country = normalizeCountry(address.countryCode);
+    if (country) countries.add(country);
+  }
+  if (countries.size === 0) return [];
+
+  const violations: Violation[] = [];
+  for (const line of cart.lines) {
+    if (!(Number.isFinite(line.quantity) && line.quantity > 0)) continue;
+    const tags = new Set(line.tags.map((tag) => tag.trim().toLowerCase()));
+    for (const rule of rules) {
+      if (!tags.has(rule.tag.trim().toLowerCase())) continue;
+      const country = rule.countries.map(normalizeCountry).find((code) => countries.has(code));
+      if (!country) continue;
+      violations.push({
+        rule: "product",
+        message: rule.message || DEFAULT_PRODUCT_COUNTRY_MESSAGE,
+        target: `$.cart.lines[${line.index}].quantity`,
+        detail: `products tagged "${rule.tag}" can't ship to ${country}`,
+      });
+      break; // one error per line is enough
     }
   }
   return violations;
@@ -1062,8 +1232,11 @@ export function evaluateCart(cart: CartInput, config: RuleConfig): Violation[] {
     }
   };
 
-  // 1) Hard embargo: applies to everyone, VIPs included.
-  if (settings.enable_geo) safely(() => evaluateBlockedCountries(cart, config.geoBlocklist));
+  // 1) Hard embargo and product shipping rules: apply to everyone, VIPs included.
+  if (settings.enable_geo) {
+    safely(() => evaluateBlockedCountries(cart, config.geoBlocklist));
+    safely(() => evaluateProductCountries(cart, config.geoBlocklist));
+  }
 
   // 2) VIP: a signed-in customer on the list skips every remaining rule.
   //    Only the country embargo above still applies to them.
@@ -1079,6 +1252,7 @@ export function evaluateCart(cart: CartInput, config: RuleConfig): Violation[] {
 
   if (settings.enable_quantity) {
     safely(() => evaluateQuantityLimits(cart, config.quantityLimits));
+    safely(() => evaluateOrderItems(cart, config.quantityLimits));
     safely(() => evaluateOrderAmount(cart, config.quantityLimits));
   }
   if (settings.enable_po_box) safely(() => evaluateAddressRules(cart, config.regexRules, vip.addresses));

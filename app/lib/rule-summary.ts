@@ -6,6 +6,7 @@
 
 import {
   PRODUCT_GID_PREFIX,
+  VIP_TAG_PREFIX,
   type FeatureFlag,
   type QuantityLimit,
   type RuleConfig,
@@ -131,6 +132,11 @@ export function limitRange(limit: QuantityLimit): string | null {
   if (limit.multiple !== undefined && Number.isFinite(limit.multiple)) {
     parts.push(`in packs of ${formatNumber(limit.multiple)}`);
   }
+  const minItems = wholeUnits(limit.minItems);
+  const maxItems = wholeUnits(limit.maxItems);
+  if (minItems !== null && maxItems !== null) parts.push(`${formatNumber(minItems)} to ${formatNumber(maxItems)} items per order`);
+  else if (maxItems !== null) parts.push(`up to ${formatNumber(maxItems)} items per order`);
+  else if (minItems !== null) parts.push(`at least ${formatNumber(minItems)} items per order`);
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
@@ -149,6 +155,8 @@ export function summarizeSections(config: RuleConfig, locale = "en"): Record<Rul
   if (geo.states.length > 0) geoDetails.push({ key: "summary.geo.states", count: geo.states.length });
   if (geo.cities.length > 0) geoDetails.push({ key: "summary.geo.cities", count: geo.cities.length });
   if (geo.zips.length > 0) geoDetails.push({ key: "summary.geo.zips", count: geo.zips.length });
+  const productRules = geo.products?.length ?? 0;
+  if (productRules > 0) geoDetails.push({ key: "summary.geo.products", count: productRules });
 
   const builtIns = new Set<string>();
   let keywords = 0;
@@ -172,11 +180,13 @@ export function summarizeSections(config: RuleConfig, locale = "en"): Record<Rul
   }));
   if (limits.length > 2) quantityDetails.push({ key: "summary.more", count: limits.length - 2 });
 
-  const emails = vipAllowlist.filter((entry) => entry.includes("@")).length;
-  const addresses = vipAllowlist.length - emails;
+  const tags = vipAllowlist.filter((entry) => entry.toLowerCase().startsWith(VIP_TAG_PREFIX)).length;
+  const emails = vipAllowlist.filter((entry) => !entry.toLowerCase().startsWith(VIP_TAG_PREFIX) && entry.includes("@")).length;
+  const addresses = vipAllowlist.length - emails - tags;
   const vipDetails: SummaryDetail[] = [];
   if (emails > 0) vipDetails.push({ key: "summary.vip.emails", count: emails });
   if (addresses > 0) vipDetails.push({ key: "summary.vip.addresses", count: addresses });
+  if (tags > 0) vipDetails.push({ key: "summary.vip.tags", count: tags });
 
   const emailRules = config.emailBlocklist;
   const emailDetails: SummaryDetail[] = [];
