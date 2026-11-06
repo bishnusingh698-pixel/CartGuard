@@ -23,17 +23,17 @@
     "function:build": "shopify app function build --path extensions/cartfence-validator"
   },
   "dependencies": {
-    "@prisma/client": "^5.10.0",
+    "@prisma/client": "^6.19.3",
     "@remix-run/dev": "^2.15.0",
     "@remix-run/node": "^2.15.0",
     "@remix-run/react": "^2.15.0",
     "@remix-run/serve": "^2.15.0",
-    "@shopify/app-bridge-react": "^4.1.0",
+    "@shopify/app-bridge-react": "^4.2.15",
     "@shopify/polaris": "^13.0.0",
-    "@shopify/shopify-app-remix": "^3.5.0",
-    "@shopify/shopify-app-session-storage-prisma": "^5.0.0",
+    "@shopify/shopify-app-remix": "^6.0.3",
+    "@shopify/shopify-app-session-storage-prisma": "^11.0.2",
     "isbot": "^5.1.0",
-    "prisma": "^5.10.0",
+    "prisma": "^6.19.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.4.5",
@@ -52,7 +52,7 @@
     "vitest": "^1.6.0"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "overrides": {
     "@types/react": "^18.3.0",

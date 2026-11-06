@@ -26,8 +26,8 @@ function getEnv(name: string, devFallback: string): string {
   return devFallback;
 }
 
-/** Pinned Admin API version. Keep in sync with shopify.app.toml and the Function. */
-export const API_VERSION = "2026-07" as ApiVersion;
+/** Pinned Admin API version (newest stable). Keep in sync with [webhooks] in shopify.app.toml. The checkout Function pins its own version in its extension toml. */
+export const API_VERSION = "2026-10" as ApiVersion;
 
 /** Keep in sync with [access_scopes] in shopify.app.toml. */
 const DEFAULT_SCOPES = ["read_orders", "read_products", "write_validations"];
@@ -36,6 +36,9 @@ const DEFAULT_SCOPES = ["read_orders", "read_products", "write_validations"];
 // about can't break type-checking.
 const futureFlags = {
   unstable_newEmbeddedAuthStrategy: true,
+  // App Store requirement 3.1.2: public apps use expiring offline tokens,
+  // refreshed automatically before they run out (Session.refreshToken).
+  expiringOfflineAccessTokens: true,
 };
 
 const configuredScopes = process.env.SCOPES?.split(",").map((scope) => scope.trim()).filter(Boolean);

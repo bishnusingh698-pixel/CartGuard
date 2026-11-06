@@ -206,3 +206,15 @@ export function summarizeSections(config: RuleConfig, locale = "en"): Record<Rul
     vip: summary(settings.enable_vip, vipDetails),
   };
 }
+
+/**
+ * The warning for an Order check that ran without some protected customer
+ * data, naming only the rules that couldn't be tested.
+ */
+export function hiddenDataMessageKey(hiddenFields: Array<"email" | "address"> | undefined): MessageKey {
+  const email = hiddenFields?.includes("email") ?? true;
+  const address = hiddenFields?.includes("address") ?? true;
+  if (email && !address) return "impact.emailHidden";
+  if (address && !email) return "impact.addressHidden";
+  return "impact.customerDataHidden";
+}

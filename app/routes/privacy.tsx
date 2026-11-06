@@ -56,7 +56,7 @@ export default function PrivacyPolicy() {
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 text-slate-800">
       <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-sm border border-slate-200 p-8 sm:p-12">
         <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-4">{t("privacy.title")}</h1>
-        <p className="text-sm text-slate-500 mb-8">{t("privacy.effectiveDate", { date: "October 2026" })}</p>
+        <p className="text-sm text-slate-500 mb-8">{t("privacy.effectiveDate", { date: "November 2026" })}</p>
 
         <div className="space-y-6 text-sm leading-6">
           <Section heading={t("privacy.overview.heading")}>
@@ -68,6 +68,7 @@ export default function PrivacyPolicy() {
               <li>{t("privacy.store.session")}</li>
               <li>{t("privacy.store.rules")}</li>
               <li>{t("privacy.store.language")}</li>
+              <li>{t("privacy.store.browser")}</li>
             </ul>
           </Section>
 
@@ -76,6 +77,14 @@ export default function PrivacyPolicy() {
               <li>{t("privacy.read.checkout")}</li>
               <li>{t("privacy.read.impact")}</li>
             </ul>
+          </Section>
+
+          <Section heading={t("privacy.processing.heading")}>
+            <p>{t("privacy.processing.body")}</p>
+          </Section>
+
+          <Section heading={t("privacy.retention.heading")}>
+            <p>{t("privacy.retention.body")}</p>
           </Section>
 
           <Section heading={t("privacy.gdpr.heading")}>
