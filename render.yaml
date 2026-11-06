@@ -23,7 +23,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
-        value: "20"
+        value: "22"
       - key: SHOPIFY_APP_URL
         value: https://cartguard-co1f.onrender.com
       - key: SCOPES

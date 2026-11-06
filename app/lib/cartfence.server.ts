@@ -102,10 +102,12 @@ export type ImpactResult = {
   /** Orders stopped by each section. An order can count in several. */
   bySection: Record<RuleSection, number>;
   /**
-   * Shopify withheld order emails and addresses (protected customer data not
-   * yet approved), so country, address and trusted-customer rules weren't tested.
+   * Shopify withheld order emails and/or addresses (protected customer data not
+   * yet approved), so the rules that need them weren't tested.
    */
   customerDataHidden?: boolean;
+  /** Which protected fields were withheld, so the page can say which rules weren't tested. */
+  hiddenFields?: ProtectedOrderField[];
 };
 
 export type ActionResponse = {
@@ -667,17 +669,22 @@ const IMPACT_SAMPLE_LIMIT = 5;
 // 20 lines covers almost every order; the subtotal comes from the order
 // itself, so amount limits stay exact even for larger ones.
 export const IMPACT_LINE_ITEMS = 20;
-// Email and shipping address are protected customer data. Until Shopify
-// approves the app for them, asking for them fails the whole query, so the
-// checker retries without them and says which rules it couldn't test.
-const recentOrdersQuery = (includeCustomer: boolean) => `#graphql
+/** Order fields that are protected customer data and need Shopify's approval. */
+export type ProtectedOrderField = "email" | "address";
+
+// Email and shipping address are protected customer data, approved field by
+// field. Until Shopify approves the app for one, asking for it fails the whole
+// query, so the checker drops only the refused field, retries, and says which
+// rules it couldn't test.
+const recentOrdersQuery = (fields: ProtectedOrderField[]) => `#graphql
   query CartFenceRecentOrders($first: Int!, $after: String) {
     orders(first: $first, after: $after, reverse: true, sortKey: CREATED_AT) {
       pageInfo { hasNextPage endCursor }
       nodes {
         id
         name
-        ${includeCustomer ? "email\n        shippingAddress { address1 address2 city provinceCode zip countryCode }" : ""}
+        ${fields.includes("email") ? "email" : ""}
+        ${fields.includes("address") ? "shippingAddress { address1 address2 city provinceCode zip countryCode }" : ""}
         currencyCode
         subtotalPriceSet {
           shopMoney { amount }
@@ -810,6 +817,18 @@ export function isProtectedDataError(error: unknown): boolean {
   return /not approved to (?:access|use)|protected customer data/i.test(errorMessage(error));
 }
 
+/**
+ * The protected fields a refusal names ("not approved to use the email
+ * field"). When it names neither, every remaining field is dropped.
+ */
+export function refusedFields(error: unknown, requested: ProtectedOrderField[]): ProtectedOrderField[] {
+  const message = errorMessage(error).toLowerCase();
+  const named = requested.filter((field) =>
+    field === "email" ? /\bemail\b/.test(message) : /\baddress|shippingaddress|address1|\bcity\b|\bzip\b|province|country/.test(message),
+  );
+  return named.length > 0 ? named : requested;
+}
+
 type OrdersQueryResult = {
   orders?: { pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }; nodes?: OrderNode[] } | null;
 };
@@ -822,18 +841,26 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
   // yields no nodes would otherwise spin until the budget check or forever.
   const seenCursors = new Set<string>();
   let waitedMs = 0;
-  let includeCustomer = true;
+  let fields: ProtectedOrderField[] = ["email", "address"];
+  const hidden: ProtectedOrderField[] = [];
   while (orders.length < IMPACT_MAX_ORDERS) {
     let queryResult: { data: OrdersQueryResult; cost?: GraphqlCost };
     try {
-      queryResult = await adminGraphql<OrdersQueryResult>(admin, recentOrdersQuery(includeCustomer), {
+      queryResult = await adminGraphql<OrdersQueryResult>(admin, recentOrdersQuery(fields), {
         first: IMPACT_PAGE_SIZE,
         after,
       });
     } catch (error) {
-      if (error instanceof Response || !includeCustomer || !isProtectedDataError(error)) throw error;
-      console.warn("[CartFence] Order emails and addresses withheld by Shopify, checking without them:", errorMessage(error));
-      includeCustomer = false;
+      if (error instanceof Response || fields.length === 0 || !isProtectedDataError(error)) throw error;
+      const refused = refusedFields(error, fields);
+      console.warn(`[CartFence] Shopify withheld order ${refused.join(" and ")}, checking without:`, errorMessage(error));
+      fields = fields.filter((field) => !refused.includes(field));
+      hidden.push(...refused);
+      // Pages already read included the refused field; start over so every
+      // order is checked the same way.
+      orders.length = 0;
+      after = null;
+      seenCursors.clear();
       continue;
     }
     const page: OrdersQueryResult["orders"] = queryResult.data.orders;
@@ -862,7 +889,7 @@ export async function simulateImpact(admin: AdminApi, config: RuleConfig): Promi
     }
   }
   const result = simulateOrders(orders.slice(0, IMPACT_MAX_ORDERS), config);
-  return includeCustomer ? result : { ...result, customerDataHidden: true };
+  return hidden.length === 0 ? result : { ...result, customerDataHidden: true, hiddenFields: hidden };
 }
 
 /** Re-exported for the rules route. */

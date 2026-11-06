@@ -91,6 +91,7 @@ import {
   type RuleSection,
   type SectionSummary,
   formatShare,
+  hiddenDataMessageKey,
   summarizeSections,
 } from "../lib/rule-summary";
 import {
@@ -369,9 +370,14 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
             />
           )}
         </InlineGrid>
+        {everyProduct && (
+          <Text as="h5" variant="headingXs" tone="subdued">
+            {t("quantity.perProduct")}
+          </Text>
+        )}
         <InlineGrid columns={{ xs: 1, md: 3 }} gap="300">
           <TextField
-            label={t("quantity.minUnits")}
+            label={everyProduct ? t("quantity.minUnitsEach") : t("quantity.minUnits")}
             type="number"
             min={0}
             max={MAX_UNITS}
@@ -383,7 +389,7 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
             autoComplete="off"
           />
           <TextField
-            label={t("quantity.maxUnits")}
+            label={everyProduct ? t("quantity.maxUnitsEach") : t("quantity.maxUnits")}
             type="number"
             min={0}
             max={MAX_UNITS}
@@ -407,6 +413,11 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
             autoComplete="off"
           />
         </InlineGrid>
+        {everyProduct && (
+          <Text as="h5" variant="headingXs" tone="subdued">
+            {t("quantity.wholeOrder")}
+          </Text>
+        )}
         {everyProduct && (
           <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
             <TextField
@@ -471,11 +482,8 @@ function LimitEditor({ row, index, errors, onChange, onRemove }: LimitEditorProp
           label={t("quantity.messageLabel")}
           value={row.message}
           onChange={(message) => onChange({ message })}
-          placeholder={
-            everyProduct && !row.min.trim() && !row.max.trim()
-              ? t("quantity.autoMessageOverAmount")
-              : t("quantity.autoMessageReduceUnits", { count: exampleMax })
-          }
+          placeholder={t("quantity.autoMessageReduceUnits", { count: exampleMax })}
+          helpText={everyProduct ? t("quantity.messageHelpAll") : undefined}
           maxLength={MESSAGE_MAX_LENGTH}
           showCharacterCount
           autoComplete="off"
@@ -565,7 +573,7 @@ function ImpactSummary({ impact }: { impact: ImpactResult }) {
       )}
       {impact.customerDataHidden && (
         <Text as="p" variant="bodySm" tone="caution">
-          {t("impact.customerDataHidden")}
+          {t(hiddenDataMessageKey(impact.hiddenFields))}
         </Text>
       )}
       <Text as="p" variant="bodySm" tone="subdued">

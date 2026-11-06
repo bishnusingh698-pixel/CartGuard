@@ -34,7 +34,7 @@ email) and Order check (the saved rules run on recent orders).
 
 ## Requirements
 
-- Node 20 or newer
+- Node 22 or newer
 - A Shopify Partner account and a development store
 - Shopify CLI (`npm run shopify` wraps it, or install it globally)
 - A Postgres database, for session storage

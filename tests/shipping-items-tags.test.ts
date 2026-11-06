@@ -251,3 +251,40 @@ describe("editor and save validation", () => {
     expect(summary.vip.details.find((d) => d.key === "summary.vip.addresses")).toBeUndefined();
   });
 });
+
+describe("Order check when Shopify withholds one protected field", () => {
+  it("drops only the refused field and keeps testing address rules", async () => {
+    const queries: string[] = [];
+    const admin = {
+      graphql: async (query: string) => {
+        queries.push(query);
+        if (/\bemail\b/.test(query)) {
+          return new Response(JSON.stringify({ errors: [{ message: "This app is not approved to use the email field." }] }));
+        }
+        return new Response(
+          JSON.stringify({
+            data: {
+              orders: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ id: "gid://shopify/Order/1", name: "#1", shippingAddress: { countryCode: "RU" }, lineItems: { nodes: [] } }],
+              },
+            },
+          }),
+        );
+      },
+    };
+    const { simulateImpact } = await import("../app/lib/cartfence.server");
+    const result = await simulateImpact(admin, config({ geoBlocklist: geo({ countries: ["RU"] }) }));
+    expect(queries).toHaveLength(2);
+    expect(queries[1]).toContain("shippingAddress");
+    expect(result.blocked).toBe(1);
+    expect(result.hiddenFields).toEqual(["email"]);
+  });
+
+  it("names the rules that weren't tested", async () => {
+    const { hiddenDataMessageKey } = await import("../app/lib/rule-summary");
+    expect(hiddenDataMessageKey(["email"])).toBe("impact.emailHidden");
+    expect(hiddenDataMessageKey(["address"])).toBe("impact.addressHidden");
+    expect(hiddenDataMessageKey(["email", "address"])).toBe("impact.customerDataHidden");
+  });
+});

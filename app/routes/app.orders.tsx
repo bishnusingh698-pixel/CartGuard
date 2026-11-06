@@ -31,7 +31,7 @@ import { ORDERS_CHECKED_KEY, writeFlag } from "../components/setup-guide";
 import { errorMessage, friendlyErrorMessage } from "../lib/admin-api.server";
 import { type ImpactMatch, type ImpactResult, effectiveRaw, parseConfig, readConfiguration, simulateImpact } from "../lib/cartfence.server";
 import { type RulesState, getAdmin, loadRulesState } from "../lib/dashboard.server";
-import { type RuleSection, SECTION_TITLE_KEY, formatShare, summarizeSections } from "../lib/rule-summary";
+import { type RuleSection, SECTION_TITLE_KEY, formatShare, hiddenDataMessageKey, summarizeSections } from "../lib/rule-summary";
 
 export const headers: HeadersFunction = (headersArgs) => boundary.headers(headersArgs);
 
@@ -149,7 +149,7 @@ function Results({ impact, isDemo, t, number }: { impact: ImpactResult; isDemo: 
     <BlockStack gap="400">
       {impact.customerDataHidden && (
         <Banner tone="warning">
-          <Text as="p">{t("impact.customerDataHidden")}</Text>
+          <Text as="p">{t(hiddenDataMessageKey(impact.hiddenFields))}</Text>
         </Banner>
       )}
       <Card>
